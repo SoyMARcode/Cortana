@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+/*
+  Tokens de Cortana — libreta de notas personal, no "chat de SaaS".
+  Paleta papel gris-azulado frío, un único acento cálido reservado
+  para lo urgente, un verde apagado para lo ya resuelto.
+*/
+:root {
+  --paper: #EDEFF2;
+  --paper-line: #DCDFE5;
+  --paper-note: #F7F8FA;
+  --ink: #21242B;
+  --ink-soft: #5B6070;
+  --rule: #C9CDD6;
+  --amber: #B5730A;
+  --amber-soft: #F4E3C2;
+  --teal: #3F6659;
+  --teal-soft: #DCE8E3;
+  --panel: #E5E8EC;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --font-editorial: var(--font-editorial);
+  --font-sans: var(--font-humanista);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; }
+  :root {
+    --paper: #1B1D22;
+    --paper-line: #2C2F37;
+    --paper-note: #24262C;
+    --ink: #EAEAEC;
+    --ink-soft: #A3A7B4;
+    --rule: #3A3D46;
+    --amber: #E3A23D;
+    --amber-soft: #3A2E17;
+    --teal: #7FA898;
+    --teal-soft: #1C2A26;
+    --panel: #202227;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-humanista), ui-sans-serif, system-ui, sans-serif;
+}
+
+.fuente-editorial {
+  font-family: var(--font-editorial), Georgia, serif;
+}
+
+@keyframes escribir-nota {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.nota-nueva {
+  animation: escribir-nota 260ms ease-out;
+}
+
+/* Casillero de tarea: cuadrado de tinta, se rellena en verde al completarse. */
+.casillero {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--rule);
+  background: var(--paper);
+  cursor: pointer;
+}
+.casillero:checked {
+  background: var(--teal);
+  border-color: var(--teal);
+}
+.casillero:checked::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: solid var(--paper);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+.casillero:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+/* Hoja de tareas en el celular: sube desde abajo. */
+@keyframes subir-hoja {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.hoja-sube {
+  animation: subir-hoja 220ms ease-out;
+}
