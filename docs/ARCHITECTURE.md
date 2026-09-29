@@ -115,3 +115,20 @@ mandan los últimos 40 mensajes. "nueva conversación" borra el historial.
   llegó a ningún dispositivo, por correo.
 - iPhone: los avisos solo funcionan con Cortana agregada a la pantalla de
   inicio (iOS 16.4 o posterior).
+
+## Uso en equipo
+- **Registro solo por invitación:** tabla `invitaciones` (email, es_admin).
+  El trigger `verificar_invitacion` en `auth.users` rechaza en la base de
+  datos cualquier alta cuyo email no esté invitado, venga de donde venga.
+  El login traduce ese rechazo a "Tu email no está invitado".
+- **Administradores** (`es_admin = true`) gestionan el equipo desde el chat:
+  `invitar_persona`, `listar_equipo`, `quitar_invitacion`. Para los demás,
+  esas herramientas se ocultan al modelo con `activeTools` y además cada
+  una vuelve a verificar el rol al ejecutarse.
+- **Límite de chat:** `registrar_mensaje_chat(limite)` suma de forma
+  atómica en `uso_chat` (por persona y día) y devuelve -1 al pasarse; la
+  ruta responde 429 y el chat lo muestra. Límite por defecto 150/día,
+  configurable con la variable `CHAT_LIMITE_DIARIO`. Solo cuentan los
+  mensajes que escribe la persona, no las continuaciones tras aprobar.
+- **Prompt caching de Anthropic:** puntos de caché después de la
+  personalidad (herramientas + instrucciones) y al final del historial.

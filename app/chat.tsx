@@ -28,6 +28,9 @@ const NOMBRES_HERRAMIENTA: Record<string, string> = {
   listar_recordatorios: 'revisando tus avisos',
   cancelar_recordatorio: 'aviso cancelado',
   fecha_hora_actual: 'mirando el calendario',
+  invitar_persona: 'invitación agregada',
+  listar_equipo: 'revisando el equipo',
+  quitar_invitacion: 'invitación quitada',
   enviar_correo: 'enviando el correo',
 };
 
@@ -218,7 +221,15 @@ export default function Chat({
     setLibreta(await cargarLibreta(supabase));
   }, [supabase]);
 
-  const { messages, setMessages, sendMessage, status, addToolApprovalResponse } = useChat({
+  const {
+    messages,
+    setMessages,
+    sendMessage,
+    status,
+    addToolApprovalResponse,
+    error,
+    clearError,
+  } = useChat({
     messages: mensajesIniciales,
     transport: new DefaultChatTransport({
       body: () => ({ zonaHoraria: Intl.DateTimeFormat().resolvedOptions().timeZone }),
@@ -297,6 +308,7 @@ export default function Chat({
   function enviar(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || esperandoAprobacion) return;
+    clearError();
     sendMessage({ text: input });
     setInput('');
   }
@@ -427,6 +439,18 @@ export default function Chat({
                 )}
               </div>
             ))}
+
+            {error && (
+              <div
+                role="alert"
+                className="border border-[var(--amber)] bg-[var(--amber-soft)] px-4 py-3 text-sm"
+              >
+                {/* Los errores del servidor ya vienen en texto claro (límite diario, sesión, etc.). */}
+                {error.message.length < 300 && !error.message.startsWith('{')
+                  ? error.message
+                  : 'Algo falló al responder. Probá de nuevo en un momento.'}
+              </div>
+            )}
 
             {status === 'submitted' && (
               <div className="border-l-2 border-[var(--rule)] pl-4 text-[15px] italic text-[var(--ink-soft)]">

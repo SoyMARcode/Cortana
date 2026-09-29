@@ -5,6 +5,24 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sello } from '../iconos';
 
+/** Mensajes de Supabase Auth en palabras que el equipo entienda. */
+function traducirError(mensaje: string): string {
+  // El trigger verificar_invitacion bloquea el registro; Supabase lo reporta así.
+  if (/database error saving new user/i.test(mensaje)) {
+    return 'Tu email no está invitado a Cortana. Pedile acceso a quien administra el equipo.';
+  }
+  if (/invalid login credentials/i.test(mensaje)) return 'Email o contraseña incorrectos.';
+  if (/email not confirmed/i.test(mensaje)) {
+    return 'Todavía no confirmaste tu email. Revisá tu bandeja de entrada (y spam).';
+  }
+  if (/user already registered/i.test(mensaje)) return 'Ese email ya tiene cuenta. Iniciá sesión.';
+  if (/password should be at least/i.test(mensaje)) {
+    return 'La contraseña tiene que tener al menos 6 caracteres.';
+  }
+  if (/rate limit/i.test(mensaje)) return 'Demasiados intentos. Esperá unos minutos y probá de nuevo.';
+  return mensaje;
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,7 +40,7 @@ export default function LoginPage() {
     if (modo === 'registro') {
       const { error } = await supabase.auth.signUp({ email, password });
       setCargando(false);
-      if (error) return setMensaje(error.message);
+      if (error) return setMensaje(traducirError(error.message));
       setMensaje(
         'Cuenta creada. Si tu proyecto pide confirmar el correo, revisá tu bandeja. Si no, ya podés iniciar sesión.'
       );
@@ -32,7 +50,7 @@ export default function LoginPage() {
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setCargando(false);
-    if (error) return setMensaje(error.message);
+    if (error) return setMensaje(traducirError(error.message));
     router.push('/');
     router.refresh();
   }
@@ -45,7 +63,7 @@ export default function LoginPage() {
           <h1 className="fuente-editorial text-4xl italic">Cortana</h1>
         </div>
         <p className="mb-8 text-sm text-[var(--ink-soft)]">
-          {modo === 'login' ? 'Tu libreta te está esperando.' : 'Empecemos tu libreta.'}
+          {modo === 'login' ? 'Tu libreta te está esperando.' : 'Empecemos tu libreta. Usá el email con el que te invitaron.'}
         </p>
 
         <form onSubmit={manejarEnvio} className="flex flex-col gap-4">
@@ -86,7 +104,7 @@ export default function LoginPage() {
           onClick={() => setModo(modo === 'login' ? 'registro' : 'login')}
           className="mt-6 text-sm text-[var(--ink-soft)] underline decoration-[var(--rule)] underline-offset-4 hover:text-[var(--ink)]"
         >
-          {modo === 'login' ? '¿No tenés cuenta? Registrate' : '¿Ya tenés cuenta? Iniciá sesión'}
+          {modo === 'login' ? '¿Te invitaron? Creá tu cuenta' : '¿Ya tenés cuenta? Iniciá sesión'}
         </button>
       </div>
     </div>

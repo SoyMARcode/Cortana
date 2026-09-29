@@ -1,6 +1,6 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { enviarCorreoLibre } from '@/lib/email';
 import { formatearEnZona, horaLocalAUtc } from '@/lib/zona-horaria';
 
@@ -38,8 +38,11 @@ export function soloAlPropioEmail(
 export function crearHerramientas(
   userId: string,
   userEmail: string | undefined,
-  zonaHoraria: string
+  zonaHoraria: string,
+  esAdmin = false
 ) {
+  const soloAdmin = { ok: false as const, error: 'Solo un administrador del equipo puede hacer esto.' };
+
   return {
     crear_tarea: tool({
       description:
@@ -409,5 +412,88 @@ export function crearHerramientas(
         };
       },
     }),
+
+    // ---- Solo administradores (ver HERRAMIENTAS_ADMIN y activeTools en la ruta del chat) ----
+
+    invitar_persona: tool({
+      description:
+        'Invita a una persona del equipo a usar Cortana: agrega su email a la lista de invitados para que pueda registrarse. Solo administradores.',
+      inputSchema: z.object({
+        email: z.email().describe('Email de la persona a invitar'),
+        es_admin: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe('true solo si el usuario pidió explícitamente que también sea administrador'),
+      }),
+      execute: async ({ email, es_admin }) => {
+        if (!esAdmin) return soloAdmin;
+        const limpio = email.trim().toLowerCase();
+        const { error } = await createAdminClient()
+          .from('invitaciones')
+          .upsert({ email: limpio, es_admin, invitado_por: userEmail }, { onConflict: 'email' });
+        if (error) return { ok: false, error: error.message };
+        return { ok: true, invitado: limpio, es_admin };
+      },
+    }),
+
+    listar_equipo: tool({
+      description:
+        'Lista las personas invitadas a Cortana, si ya crearon su cuenta y quién es administrador. Solo administradores.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!esAdmin) return soloAdmin;
+        const admin = createAdminClient();
+        const [{ data: invitados, error }, { data: usuarios }] = await Promise.all([
+          admin.from('invitaciones').select('email, es_admin, created_at').order('created_at'),
+          admin.auth.admin.listUsers({ perPage: 1000 }),
+        ]);
+        if (error) return { ok: false, error: error.message };
+        const registrados = new Set(usuarios?.users.map((u) => u.email?.toLowerCase()));
+        return {
+          ok: true,
+          equipo: (invitados ?? []).map((i) => ({
+            email: i.email,
+            es_admin: i.es_admin,
+            ya_se_registro: registrados.has(i.email),
+          })),
+        };
+      },
+    }),
+
+    quitar_invitacion: tool({
+      description:
+        'Quita a alguien de la lista de invitados para que no pueda registrarse. Si ya tenía cuenta, la cuenta sigue existiendo. Solo administradores.',
+      inputSchema: z.object({ email: z.email().describe('Email a quitar') }),
+      execute: async ({ email }) => {
+        if (!esAdmin) return soloAdmin;
+        const limpio = email.trim().toLowerCase();
+        if (limpio === userEmail?.toLowerCase()) {
+          return { ok: false, error: 'No podés quitarte a vos mismo.' };
+        }
+        const { data, error } = await createAdminClient()
+          .from('invitaciones')
+          .delete()
+          .eq('email', limpio)
+          .select('email');
+        if (error) return { ok: false, error: error.message };
+        if (!data?.length) return { ok: false, error: `${limpio} no estaba invitado.` };
+        return { ok: true, quitado: limpio };
+      },
+    }),
   };
+}
+
+/** Herramientas que solo ve el modelo cuando quien chatea es administrador. */
+export const HERRAMIENTAS_ADMIN = ['invitar_persona', 'listar_equipo', 'quitar_invitacion'] as const;
+
+/** true si el email está invitado como administrador. */
+export async function esAdministrador(email: string | undefined): Promise<boolean> {
+  if (!email) return false;
+  const { data } = await createAdminClient()
+    .from('invitaciones')
+    .select('es_admin')
+    .eq('email', email.toLowerCase())
+    .maybeSingle();
+  return data?.es_admin === true;
 }

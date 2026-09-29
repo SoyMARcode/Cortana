@@ -203,3 +203,94 @@ drop policy if exists "usuarios borran sus dispositivos" on push_suscripciones;
 create policy "usuarios borran sus dispositivos"
   on push_suscripciones for delete
   using (auth.uid() = user_id);
+
+-- ============================================================
+-- Mejoras v5: uso en equipo (invitaciones + límite de chat).
+-- ============================================================
+
+-- Solo pueden crear cuenta los emails de esta lista. es_admin = puede
+-- invitar a otros desde el chat. Sin políticas RLS: solo el servidor
+-- (service role) la lee y la escribe.
+create table if not exists invitaciones (
+  email text primary key,
+  es_admin boolean not null default false,
+  invitado_por text,
+  created_at timestamptz not null default now()
+);
+
+alter table invitaciones enable row level security;
+
+-- El dueño del proyecto es el primer administrador.
+insert into invitaciones (email, es_admin, invitado_por)
+values ('acevedomichael653@gmail.com', true, 'instalación')
+on conflict (email) do update set es_admin = true;
+
+-- Bloquea en la base de datos cualquier registro que no esté invitado,
+-- venga de donde venga (la app, la API de Supabase, un magic link...).
+create or replace function public.verificar_invitacion()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.email is null or not exists (
+    select 1 from public.invitaciones where email = lower(new.email)
+  ) then
+    raise exception 'Este email no está invitado a Cortana';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists verificar_invitacion on auth.users;
+create trigger verificar_invitacion
+  before insert on auth.users
+  for each row execute function public.verificar_invitacion();
+
+-- Mensajes de chat por persona y por día, para controlar el costo de la IA.
+create table if not exists uso_chat (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  fecha date not null default current_date,
+  mensajes integer not null default 0,
+  primary key (user_id, fecha)
+);
+
+alter table uso_chat enable row level security;
+
+drop policy if exists "usuarios ven su uso" on uso_chat;
+create policy "usuarios ven su uso"
+  on uso_chat for select
+  using (auth.uid() = user_id);
+
+-- Suma un mensaje al día de hoy del usuario actual y devuelve el total.
+-- Si ya llegó al límite no suma y devuelve -1. Es atómico: dos pestañas
+-- mandando a la vez no pueden pasarse del límite.
+create or replace function public.registrar_mensaje_chat(limite integer)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  total integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Sin sesión';
+  end if;
+
+  insert into public.uso_chat (user_id, fecha, mensajes)
+  values (auth.uid(), current_date, 1)
+  on conflict (user_id, fecha) do update
+    set mensajes = public.uso_chat.mensajes + 1
+    where public.uso_chat.mensajes < limite
+  returning mensajes into total;
+
+  return coalesce(total, -1);
+end;
+$$;
+
+revoke execute on function public.registrar_mensaje_chat(integer) from public, anon;
+grant execute on function public.registrar_mensaje_chat(integer) to authenticated;
+
+notify pgrst, 'reload schema';
