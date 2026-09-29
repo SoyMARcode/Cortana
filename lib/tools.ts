@@ -2,6 +2,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { enviarCorreoLibre } from '@/lib/email';
+import { formatearEnZona, horaLocalAUtc } from '@/lib/zona-horaria';
 
 /** Tope de destinatarios por correo, para evitar envíos masivos. */
 export const MAX_DESTINATARIOS = 10;
@@ -295,6 +296,98 @@ export function crearHerramientas(
           return { ok: false, error: fallidos[0]?.error ?? 'No se envió ningún correo.', fallidos };
         }
         return { ok: true, enviado_a: enviados, fallidos };
+      },
+    }),
+
+    programar_recordatorio: tool({
+      description:
+        'Programa un aviso por correo para un día y hora exactos (ej. "recordame a las 6:45", "avisame antes de las 7"). La hora es la hora local del usuario.',
+      inputSchema: z.object({
+        mensaje: z.string().min(1).max(300).describe('Qué hay que recordarle, en pocas palabras'),
+        cuando: z
+          .string()
+          .describe('Fecha y hora local del usuario en formato YYYY-MM-DDTHH:mm, ej. 2026-09-29T06:45'),
+        tarea_id: z
+          .string()
+          .optional()
+          .describe('Id de la tarea relacionada, si el recordatorio es sobre una tarea existente'),
+      }),
+      execute: async ({ mensaje, cuando, tarea_id }) => {
+        const instante = horaLocalAUtc(cuando, zonaHoraria);
+        if (!instante) {
+          return { ok: false, error: 'La fecha y hora deben tener el formato YYYY-MM-DDTHH:mm.' };
+        }
+        const ahora = Date.now();
+        if (instante.getTime() < ahora - 60_000) {
+          return {
+            ok: false,
+            error: `Esa hora (${formatearEnZona(instante, zonaHoraria)}) ya pasó.`,
+          };
+        }
+        if (instante.getTime() > ahora + 366 * 24 * 60 * 60 * 1000) {
+          return { ok: false, error: 'Solo se pueden programar recordatorios hasta un año adelante.' };
+        }
+
+        const supabase = await createClient();
+        const { data, error } = await supabase
+          .from('recordatorios')
+          .insert({
+            user_id: userId,
+            tarea_id: tarea_id || null,
+            mensaje,
+            enviar_en: instante.toISOString(),
+            zona_horaria: zonaHoraria,
+          })
+          .select('id, mensaje, enviar_en')
+          .single();
+
+        if (error) return { ok: false, error: error.message };
+        return {
+          ok: true,
+          recordatorio: { ...data, cuando_local: formatearEnZona(instante, zonaHoraria) },
+        };
+      },
+    }),
+
+    listar_recordatorios: tool({
+      description: 'Lista los recordatorios con hora que todavía no se enviaron.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        const supabase = await createClient();
+        const { data, error } = await supabase
+          .from('recordatorios')
+          .select('id, mensaje, enviar_en')
+          .eq('user_id', userId)
+          .is('enviado_en', null)
+          .order('enviar_en');
+
+        if (error) return { ok: false, error: error.message };
+        return {
+          ok: true,
+          recordatorios: (data ?? []).map((r) => ({
+            ...r,
+            cuando_local: formatearEnZona(new Date(r.enviar_en), zonaHoraria),
+          })),
+        };
+      },
+    }),
+
+    cancelar_recordatorio: tool({
+      description: 'Cancela un recordatorio con hora que todavía no se envió, dado su id.',
+      inputSchema: z.object({ id: z.string().describe('El id del recordatorio') }),
+      execute: async ({ id }) => {
+        const supabase = await createClient();
+        const { data, error } = await supabase
+          .from('recordatorios')
+          .delete()
+          .eq('id', id)
+          .eq('user_id', userId)
+          .is('enviado_en', null)
+          .select('id');
+
+        if (error) return { ok: false, error: error.message };
+        if (!data?.length) return { ok: false, error: 'No existe o ya se envió.' };
+        return { ok: true, cancelado: true };
       },
     }),
 

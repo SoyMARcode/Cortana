@@ -12,7 +12,7 @@ import { createClient } from '@/lib/supabase/client';
 import { hablar, detenerVoz, crearReconocimientoDeVoz } from '@/lib/voice';
 import { cargarLibreta, type Libreta } from '@/lib/libreta';
 import PanelTareas from './panel-tareas';
-import { IconoMarcador, IconoMicrofono, IconoPersona, IconoSobre, Sello } from './iconos';
+import { IconoMarcador, IconoMicrofono, IconoPersona, IconoReloj, IconoSobre, Sello } from './iconos';
 
 const NOMBRES_HERRAMIENTA: Record<string, string> = {
   crear_tarea: 'anotado',
@@ -23,6 +23,9 @@ const NOMBRES_HERRAMIENTA: Record<string, string> = {
   guardar_contacto: 'guardando el contacto',
   listar_contactos: 'buscando en tus contactos',
   borrar_contacto: 'borrando el contacto',
+  programar_recordatorio: 'programando el aviso',
+  listar_recordatorios: 'revisando tus avisos',
+  cancelar_recordatorio: 'aviso cancelado',
   fecha_hora_actual: 'mirando el calendario',
   enviar_correo: 'enviando el correo',
 };
@@ -157,6 +160,18 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
     );
   }
 
+  if (salida?.recordatorio) {
+    return (
+      <div className={`${CHIP} border-dashed bg-[var(--paper-note)]`}>
+        <IconoReloj />
+        <span className="font-medium">{salida.recordatorio.mensaje}</span>
+        <span className="fuente-editorial italic text-[var(--ink-soft)]">
+          {salida.recordatorio.cuando_local}
+        </span>
+      </div>
+    );
+  }
+
   if (salida?.contacto) {
     return (
       <div className={`${CHIP} bg-[var(--paper-note)]`}>
@@ -255,6 +270,12 @@ export default function Chat({
     window.addEventListener('keydown', cerrarConEscape);
     return () => window.removeEventListener('keydown', cerrarConEscape);
   }, [hojaAbierta]);
+
+  async function cancelarAviso(id: string) {
+    setLibreta((l) => ({ ...l, recordatorios: l.recordatorios.filter((r) => r.id !== id) }));
+    const { error } = await supabase.from('recordatorios').delete().eq('id', id);
+    if (error) refrescarLibreta();
+  }
 
   async function alternarTarea(id: string, completada: boolean) {
     // Se tacha al instante; si la base falla, se vuelve atrás al refrescar.
@@ -360,7 +381,7 @@ export default function Chat({
         aria-label="Tus tareas"
         className="hidden overflow-y-auto border-r border-[var(--paper-line)] bg-[var(--panel)] px-[18px] py-5 md:block"
       >
-        <PanelTareas libreta={libreta} onAlternar={alternarTarea} />
+        <PanelTareas libreta={libreta} onAlternar={alternarTarea} onCancelarAviso={cancelarAviso} />
       </aside>
 
       <div className="grid min-h-0 grid-rows-[1fr_auto]">
@@ -461,7 +482,7 @@ export default function Chat({
               aria-label="Cerrar tareas"
               className="h-1 w-10 self-center rounded-full bg-[var(--rule)]"
             />
-            <PanelTareas libreta={libreta} onAlternar={alternarTarea} grande />
+            <PanelTareas libreta={libreta} onAlternar={alternarTarea} onCancelarAviso={cancelarAviso} grande />
             <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-[var(--paper-line)] pt-3.5 text-sm text-[var(--ink-soft)]">
               {acciones}
             </div>

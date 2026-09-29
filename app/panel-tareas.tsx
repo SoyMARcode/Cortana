@@ -1,6 +1,7 @@
 'use client';
 
-import { agruparTareas, textoPlazo, type Libreta } from '@/lib/libreta';
+import { agruparTareas, textoAviso, textoPlazo, type Libreta } from '@/lib/libreta';
+import { IconoReloj } from './iconos';
 
 /**
  * Pendientes agrupados por cuándo vencen + contactos. Se usa en la columna
@@ -9,10 +10,12 @@ import { agruparTareas, textoPlazo, type Libreta } from '@/lib/libreta';
 export default function PanelTareas({
   libreta,
   onAlternar,
+  onCancelarAviso,
   grande = false,
 }: {
   libreta: Libreta;
   onAlternar: (id: string, completada: boolean) => void;
+  onCancelarAviso: (id: string) => void;
   grande?: boolean;
 }) {
   const grupos = agruparTareas(libreta.tareas);
@@ -71,6 +74,39 @@ export default function PanelTareas({
           ))}
         </section>
       ))}
+
+      {libreta.recordatorios.length > 0 && (
+        <section className="flex flex-col gap-1.5">
+          <h3 className="flex justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-soft)]">
+            <span>Avisos programados</span>
+            <span className="tabular-nums">{libreta.recordatorios.length}</span>
+          </h3>
+          {libreta.recordatorios.map((r) => (
+            <div
+              key={r.id}
+              className={`grid items-start gap-2.5 border border-dashed border-[var(--rule)] leading-snug ${
+                grande ? 'grid-cols-[18px_1fr_auto] px-3 py-2.5 text-[15px]' : 'grid-cols-[16px_1fr_auto] px-2.5 py-2 text-sm'
+              }`}
+            >
+              <IconoReloj className="mt-0.5 h-4 w-4 text-[var(--ink-soft)]" />
+              <span>
+                {r.mensaje}
+                <span className="fuente-editorial block text-[13px] italic tabular-nums text-[var(--ink-soft)]">
+                  {textoAviso(r.enviar_en)}
+                </span>
+              </span>
+              <button
+                onClick={() => onCancelarAviso(r.id)}
+                aria-label={`Cancelar el aviso "${r.mensaje}"`}
+                title="Cancelar aviso"
+                className="px-1 text-base leading-none text-[var(--ink-soft)] hover:text-[var(--ink)]"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {libreta.contactos.length > 0 && (
         <section className="flex flex-col gap-1.5 border-t border-[var(--paper-line)] pt-3.5 text-[13px]">

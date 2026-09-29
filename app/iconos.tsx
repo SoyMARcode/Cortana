@@ -48,6 +48,13 @@ export const IconoPersona = (p: Props) => (
   </Svg>
 );
 
+export const IconoReloj = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8.5" r="5.5" />
+    <path d="M8 5.5v3l2 1.5M3 2.5l-1.5 1.5M13 2.5l1.5 1.5" />
+  </Svg>
+);
+
 export const IconoCheck = (p: Props) => (
   <Svg {...p}>
     <path d="M3 8.5l3 3 7-7" />

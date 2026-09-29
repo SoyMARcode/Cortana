@@ -10,7 +10,9 @@ export type Tarea = {
 
 export type Contacto = { nombre: string; email: string };
 
-export type Libreta = { tareas: Tarea[]; contactos: Contacto[] };
+export type Recordatorio = { id: string; mensaje: string; enviar_en: string };
+
+export type Libreta = { tareas: Tarea[]; contactos: Contacto[]; recordatorios: Recordatorio[] };
 
 /**
  * Tareas pendientes + las completadas en las últimas 36 h (el panel muestra
@@ -20,18 +22,34 @@ export type Libreta = { tareas: Tarea[]; contactos: Contacto[] };
  */
 export async function cargarLibreta(supabase: SupabaseClient): Promise<Libreta> {
   const hace36h = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
-  const [tareas, contactos] = await Promise.all([
+  const [tareas, contactos, recordatorios] = await Promise.all([
     supabase
       .from('tareas')
       .select('id, titulo, fecha_limite, completada, updated_at')
       .or(`completada.eq.false,updated_at.gte.${hace36h}`)
       .order('fecha_limite', { ascending: true, nullsFirst: false }),
     supabase.from('contactos').select('nombre, email').order('nombre'),
+    supabase
+      .from('recordatorios')
+      .select('id, mensaje, enviar_en')
+      .is('enviado_en', null)
+      .order('enviar_en')
+      .limit(20),
   ]);
   return {
     tareas: (tareas.data as Tarea[] | null) ?? [],
     contactos: (contactos.data as Contacto[] | null) ?? [],
+    recordatorios: (recordatorios.data as Recordatorio[] | null) ?? [],
   };
+}
+
+/** "hoy 6:45", "mañana 7:00", "jue 1, 9:30" en la hora local del navegador. */
+export function textoAviso(enviarEn: string): string {
+  const instante = new Date(enviarEn);
+  const hora = new Intl.DateTimeFormat('es', { hour: 'numeric', minute: '2-digit' }).format(instante);
+  const fecha = new Intl.DateTimeFormat('en-CA').format(instante);
+  const plazo = textoPlazo(fecha);
+  return `${plazo}${plazo === 'hoy' || plazo === 'mañana' ? '' : ','} ${hora}`;
 }
 
 /** "YYYY-MM-DD" de hoy en la hora local del navegador. */

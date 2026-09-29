@@ -163,6 +163,24 @@ export function enviarRecordatorio(params: {
   });
 }
 
+/** Aviso de un recordatorio con hora ("recordame a las 6:45"). */
+export function enviarAvisoConHora(params: {
+  destinatario: string;
+  mensaje: string;
+  cuandoLocal: string;
+}): Promise<ResultadoEnvio> {
+  return enviar({
+    destinatario: params.destinatario,
+    asunto: `⏰ ${params.mensaje}`,
+    html: plantilla(
+      `<p style="margin: 0 0 14px;">Me pediste que te lo recordara:</p>
+       <p style="margin: 0 0 14px; font-family: ${SERIF}; font-size: 20px; line-height: 1.4;">${escaparHtml(params.mensaje)}</p>
+       <p style="margin: 0 0 14px; color: ${TINTA_SUAVE};">Programado para el ${escaparHtml(params.cuandoLocal)}.</p>`,
+      'Recordatorio programado en Cortana.'
+    ),
+  });
+}
+
 /**
  * Correo libre: información que el usuario pidió por chat. Puede ir a su
  * propio email o a otras personas; las respuestas le llegan al usuario.

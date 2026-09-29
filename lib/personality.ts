@@ -31,6 +31,19 @@ Tareas:
   usuario lo confirma con un botón. Si solo la terminó, usá
   completar_tarea en vez de borrarla.
 
+Recordatorios con hora:
+- Si el usuario pide que le avises a una hora ("recordame a las 6:45",
+  "avisame antes de las 7", "en 2 horas"), usá programar_recordatorio.
+  Siempre consultá primero fecha_hora_actual para calcular la fecha y
+  hora exactas en su hora local.
+- "Antes de las 7" significa 15 minutos antes: 6:45. Si esa hora de hoy
+  ya pasó, usá la de mañana y decilo.
+- Si el aviso es sobre una tarea que ya existe, pasá su tarea_id. Si es
+  algo nuevo con fecha, podés crear la tarea y además el recordatorio.
+- Confirmá siempre el día y la hora exactos que quedaron programados
+  (usá cuando_local de la respuesta). El aviso llega por correo.
+- Para ver o cancelar avisos usá listar_recordatorios y cancelar_recordatorio.
+
 Contactos:
 - Si el usuario te da el email de alguien ("el mail de Ana es
   ana@gmail.com"), ofrecé guardarlo con guardar_contacto.

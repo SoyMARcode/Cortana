@@ -116,3 +116,60 @@ create policy "usuarios gestionan su conversación"
   on conversaciones for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- ============================================================
+-- Mejoras v3: recordatorios con hora ("recordame a las 6:45").
+-- ============================================================
+
+create table if not exists recordatorios (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  tarea_id uuid references tareas(id) on delete cascade,
+  mensaje text not null,
+  enviar_en timestamptz not null,
+  zona_horaria text not null default 'UTC',
+  enviado_en timestamptz,
+  reclamado_en timestamptz,
+  intentos integer not null default 0,
+  ultimo_error text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists recordatorios_pendientes_idx
+  on recordatorios(enviar_en) where enviado_en is null;
+create index if not exists recordatorios_user_idx on recordatorios(user_id);
+
+alter table recordatorios enable row level security;
+
+drop policy if exists "usuarios gestionan sus recordatorios" on recordatorios;
+create policy "usuarios gestionan sus recordatorios"
+  on recordatorios for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Toma un lote de recordatorios vencidos y los marca como "en proceso".
+-- FOR UPDATE SKIP LOCKED: si dos ejecuciones del cron se pisan, cada una
+-- se lleva recordatorios distintos y nadie recibe el aviso dos veces.
+-- Un reclamo de hace más de 10 minutos se considera colgado y se reintenta.
+create or replace function reclamar_recordatorios(limite integer default 100)
+returns setof recordatorios
+language sql
+as $$
+  update recordatorios r
+     set reclamado_en = now()
+   where r.id in (
+     select id from recordatorios
+      where enviado_en is null
+        and enviar_en <= now()
+        and intentos < 5
+        and (reclamado_en is null or reclamado_en < now() - interval '10 minutes')
+      order by enviar_en
+      limit limite
+      for update skip locked
+   )
+  returning r.*;
+$$;
+
+-- Solo el servidor (service role) puede reclamar recordatorios.
+revoke execute on function reclamar_recordatorios(integer) from public, anon, authenticated;
+grant execute on function reclamar_recordatorios(integer) to service_role;

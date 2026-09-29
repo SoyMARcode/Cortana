@@ -86,3 +86,16 @@ mandan los últimos 40 mensajes. "nueva conversación" borra el historial.
   hizo el chat.
 - Íconos de trazo en `app/iconos.tsx` (incluye el sello). Modo oscuro por
   `prefers-color-scheme` en `app/globals.css`.
+
+## Recordatorios con hora
+- Tabla `recordatorios` (mensaje, `enviar_en` en UTC, zona horaria del
+  usuario, estado de envío). Herramientas `programar_recordatorio`,
+  `listar_recordatorios`, `cancelar_recordatorio`. La hora que dice el
+  usuario se convierte a UTC con `lib/zona-horaria.ts` (maneja horario de verano).
+- `app/api/cron/recordatorios/route.ts` envía los vencidos. Lo llama
+  **pg_cron de Supabase cada minuto** (`supabase-cron.sql`), porque el
+  cron de Vercel en el plan gratis solo corre una vez por día.
+- `reclamar_recordatorios()` toma lotes con `FOR UPDATE SKIP LOCKED`: si
+  dos ejecuciones se superponen, ningún aviso sale dos veces. Si el envío
+  falla se reintenta en la siguiente pasada, hasta 5 veces.
+- El panel muestra los "Avisos programados" y permite cancelarlos.
