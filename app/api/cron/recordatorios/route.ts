@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { enviarAvisoConHora } from '@/lib/email';
 import { formatearEnZona } from '@/lib/zona-horaria';
+import { enviarPush } from '@/lib/push';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,14 +42,23 @@ export async function GET(req: Request) {
   const errores: { id: string; motivo: string }[] = [];
 
   for (const r of pendientes ?? []) {
-    const destinatario = await emailDe(r.user_id);
-    const resultado = destinatario
-      ? await enviarAvisoConHora({
-          destinatario,
-          mensaje: r.mensaje,
-          cuandoLocal: formatearEnZona(new Date(r.enviar_en), r.zona_horaria),
-        })
-      : ({ ok: false, error: 'No se encontró el email del usuario' } as const);
+    const cuandoLocal = formatearEnZona(new Date(r.enviar_en), r.zona_horaria);
+
+    // Primero al celular/computadora; el correo queda de respaldo si el
+    // usuario no activó avisos en ningún dispositivo o no llegó a ninguno.
+    const entregadosPush = await enviarPush(r.user_id, {
+      titulo: r.mensaje,
+      cuerpo: `Recordatorio de Cortana · ${cuandoLocal}`,
+      tag: `recordatorio-${r.id}`,
+    });
+
+    const destinatario = entregadosPush > 0 ? null : await emailDe(r.user_id);
+    const resultado =
+      entregadosPush > 0
+        ? ({ ok: true } as const)
+        : destinatario
+          ? await enviarAvisoConHora({ destinatario, mensaje: r.mensaje, cuandoLocal })
+          : ({ ok: false, error: 'No se encontró el email del usuario' } as const);
 
     if (resultado.ok) {
       await supabase

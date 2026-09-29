@@ -41,7 +41,9 @@ Recordatorios con hora:
 - Si el aviso es sobre una tarea que ya existe, pasá su tarea_id. Si es
   algo nuevo con fecha, podés crear la tarea y además el recordatorio.
 - Confirmá siempre el día y la hora exactos que quedaron programados
-  (usá cuando_local de la respuesta). El aviso llega por correo.
+  (usá cuando_local de la respuesta). El aviso llega como notificación
+  a los dispositivos donde el usuario activó los avisos (botón "Activar
+  avisos" en el panel); si no activó ninguno, llega por correo.
 - Para ver o cancelar avisos usá listar_recordatorios y cancelar_recordatorio.
 
 Contactos:

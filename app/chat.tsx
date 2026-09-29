@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/client';
 import { hablar, detenerVoz, crearReconocimientoDeVoz } from '@/lib/voice';
 import { cargarLibreta, type Libreta } from '@/lib/libreta';
 import PanelTareas from './panel-tareas';
+import AvisosDispositivo, { registrarServiceWorker } from './avisos-dispositivo';
 import { IconoMarcador, IconoMicrofono, IconoPersona, IconoReloj, IconoSobre, Sello } from './iconos';
 
 const NOMBRES_HERRAMIENTA: Record<string, string> = {
@@ -243,6 +244,10 @@ export default function Chat({
   const pendientes = libreta.tareas.filter((t) => !t.completada).length;
 
   useEffect(() => {
+    registrarServiceWorker();
+  }, []);
+
+  useEffect(() => {
     finRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages]);
 
@@ -381,7 +386,10 @@ export default function Chat({
         aria-label="Tus tareas"
         className="hidden overflow-y-auto border-r border-[var(--paper-line)] bg-[var(--panel)] px-[18px] py-5 md:block"
       >
-        <PanelTareas libreta={libreta} onAlternar={alternarTarea} onCancelarAviso={cancelarAviso} />
+        <div className="flex flex-col gap-5">
+          <PanelTareas libreta={libreta} onAlternar={alternarTarea} onCancelarAviso={cancelarAviso} />
+          <AvisosDispositivo />
+        </div>
       </aside>
 
       <div className="grid min-h-0 grid-rows-[1fr_auto]">
@@ -483,6 +491,7 @@ export default function Chat({
               className="h-1 w-10 self-center rounded-full bg-[var(--rule)]"
             />
             <PanelTareas libreta={libreta} onAlternar={alternarTarea} onCancelarAviso={cancelarAviso} grande />
+            <AvisosDispositivo />
             <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-[var(--paper-line)] pt-3.5 text-sm text-[var(--ink-soft)]">
               {acciones}
             </div>

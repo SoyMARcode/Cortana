@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Source_Serif_4, Public_Sans } from "next/font/google";
 import "./globals.css";
 
@@ -21,6 +21,19 @@ const sansHumanista = Public_Sans({
 export const metadata: Metadata = {
   title: "Cortana",
   description: "Tu asistente personal",
+  appleWebApp: {
+    title: "Cortana",
+    capable: true,
+    statusBarStyle: "default",
+  },
+};
+
+// Color de la barra del navegador / de la app instalada, en claro y oscuro.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#EDEFF2" },
+    { media: "(prefers-color-scheme: dark)", color: "#1B1D22" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

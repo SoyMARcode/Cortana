@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { enviarRecordatorio } from '@/lib/email';
+import { enviarPush } from '@/lib/push';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,20 +44,30 @@ export async function GET(req: Request) {
     if (dias < 0 || dias > 8) continue;
     if (tarea.ultimo_aviso_dia === dias) continue;
 
-    const { data: userData, error: userError } = await supabase.auth.admin.getUserById(
-      tarea.user_id
-    );
-    if (userError || !userData?.user?.email) {
-      errores.push({ tarea: tarea.titulo, motivo: 'No se encontró el email del usuario' });
-      continue;
-    }
-
-    const resultado = await enviarRecordatorio({
-      destinatario: userData.user.email,
+    // Primero push; el correo solo si no llegó a ningún dispositivo.
+    const entregadosPush = await enviarPush(tarea.user_id, {
       titulo: tarea.titulo,
-      fechaLimite: tarea.fecha_limite as string,
-      diasRestantes: dias,
+      cuerpo:
+        dias === 0 ? 'Vence hoy.' : dias === 1 ? 'Vence mañana.' : `Faltan ${dias} días.`,
+      tag: `tarea-${tarea.id}`,
     });
+
+    let resultado: { ok: true } | { ok: false; error: string } = { ok: true };
+    if (entregadosPush === 0) {
+      const { data: userData, error: userError } = await supabase.auth.admin.getUserById(
+        tarea.user_id
+      );
+      if (userError || !userData?.user?.email) {
+        errores.push({ tarea: tarea.titulo, motivo: 'No se encontró el email del usuario' });
+        continue;
+      }
+      resultado = await enviarRecordatorio({
+        destinatario: userData.user.email,
+        titulo: tarea.titulo,
+        fechaLimite: tarea.fecha_limite as string,
+        diasRestantes: dias,
+      });
+    }
 
     if (!resultado.ok) {
       // No se marca como avisado: mañana se vuelve a intentar.

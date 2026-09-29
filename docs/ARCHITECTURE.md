@@ -99,3 +99,19 @@ mandan los últimos 40 mensajes. "nueva conversación" borra el historial.
   dos ejecuciones se superponen, ningún aviso sale dos veces. Si el envío
   falla se reintenta en la siguiente pasada, hasta 5 veces.
 - El panel muestra los "Avisos programados" y permite cancelarlos.
+
+## Notificaciones push (PWA)
+- Cortana es instalable: `app/manifest.ts`, íconos en `public/icono-*.png`
+  y `app/apple-icon.png`. El service worker es `public/sw.js`.
+- Cada dispositivo se activa por separado desde el panel
+  (`app/avisos-dispositivo.tsx`). La suscripción se guarda en
+  `push_suscripciones` vía `app/api/push/route.ts` (POST activar, DELETE
+  desactivar, PUT notificación de prueba). Solo se aceptan endpoints de
+  servicios push reales, para que el servidor no pueda usarse contra URLs arbitrarias.
+- `lib/push.ts` envía con `web-push` (claves VAPID en las variables
+  `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) y
+  borra las suscripciones que el navegador dio de baja.
+- Recordatorios con hora y avisos de vencimiento: primero push; si no
+  llegó a ningún dispositivo, por correo.
+- iPhone: los avisos solo funcionan con Cortana agregada a la pantalla de
+  inicio (iOS 16.4 o posterior).

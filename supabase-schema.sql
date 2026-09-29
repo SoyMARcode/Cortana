@@ -173,3 +173,33 @@ $$;
 -- Solo el servidor (service role) puede reclamar recordatorios.
 revoke execute on function reclamar_recordatorios(integer) from public, anon, authenticated;
 grant execute on function reclamar_recordatorios(integer) to service_role;
+
+-- ============================================================
+-- Mejoras v4: notificaciones push (un registro por dispositivo).
+-- ============================================================
+
+create table if not exists push_suscripciones (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  dispositivo text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists push_suscripciones_user_idx on push_suscripciones(user_id);
+
+-- Las escribe el servidor (service role). El usuario solo puede ver y
+-- borrar las suyas.
+alter table push_suscripciones enable row level security;
+
+drop policy if exists "usuarios ven sus dispositivos" on push_suscripciones;
+create policy "usuarios ven sus dispositivos"
+  on push_suscripciones for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "usuarios borran sus dispositivos" on push_suscripciones;
+create policy "usuarios borran sus dispositivos"
+  on push_suscripciones for delete
+  using (auth.uid() = user_id);
