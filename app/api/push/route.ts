@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
-import { enviarPush } from '@/lib/push';
+import { enviarPush, pushDisponible } from '@/lib/push';
 
 /**
  * Solo servicios push reales (Chrome/Edge/Android, Firefox, Safari/iOS,
@@ -82,10 +82,36 @@ export async function PUT() {
   const user = await usuarioActual();
   if (!user) return new NextResponse('No autorizado', { status: 401 });
 
+  if (!pushDisponible()) {
+    return NextResponse.json({
+      ok: false,
+      motivo: 'faltan las claves VAPID en el servidor (variables de entorno de Vercel).',
+    });
+  }
+
+  const { data: dispositivos, error } = await createAdminClient()
+    .from('push_suscripciones')
+    .select('id')
+    .eq('user_id', user.id);
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (!dispositivos.length) {
+    return NextResponse.json({
+      ok: false,
+      motivo: 'no hay ningún dispositivo activado en tu cuenta. Tocá "Activar avisos".',
+    });
+  }
+
   const entregados = await enviarPush(user.id, {
     titulo: 'Cortana',
     cuerpo: 'Así te van a llegar los avisos. Todo listo.',
     tag: 'prueba',
   });
-  return NextResponse.json({ ok: entregados > 0, entregados });
+  return NextResponse.json({
+    ok: entregados > 0,
+    entregados,
+    motivo:
+      entregados > 0
+        ? undefined
+        : 'el servicio de notificaciones rechazó el envío. Desactivá y volvé a activar los avisos en este dispositivo.',
+  });
 }

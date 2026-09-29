@@ -34,6 +34,19 @@ export function registrarServiceWorker() {
   }
 }
 
+/** Traduce la respuesta de error de /api/push a algo que el usuario pueda resolver. */
+async function motivoDeError(res: Response): Promise<string> {
+  if (res.status === 401) return 'Tu sesión expiró. Cerrá sesión, volvé a entrar y probá de nuevo.';
+  const texto = await res.text().catch(() => '');
+  let detalle = texto;
+  try {
+    detalle = JSON.parse(texto).error ?? texto;
+  } catch {
+    // La respuesta era texto plano.
+  }
+  return detalle ? `${detalle} (código ${res.status})` : `Error del servidor (código ${res.status}).`;
+}
+
 const ENLACE =
   'underline decoration-[var(--rule)] underline-offset-4 hover:text-[var(--ink)] disabled:opacity-40';
 
@@ -83,7 +96,7 @@ export default function AvisosDispositivo() {
       });
       if (!res.ok) {
         await sub.unsubscribe();
-        setNota('No se pudo guardar este dispositivo. Probá de nuevo.');
+        setNota(`No se pudo guardar este dispositivo: ${await motivoDeError(res)}`);
         return;
       }
       setEstado('activo');
@@ -91,7 +104,8 @@ export default function AvisosDispositivo() {
       await fetch('/api/push', { method: 'PUT' });
     } catch (e) {
       console.error('[push] Error activando:', e);
-      setNota('No se pudieron activar los avisos en este navegador.');
+      const detalle = e instanceof Error ? e.message : String(e);
+      setNota(`No se pudieron activar los avisos en este navegador: ${detalle}`);
     } finally {
       setOcupado(false);
     }
@@ -99,10 +113,19 @@ export default function AvisosDispositivo() {
 
   async function probar() {
     setOcupado(true);
-    const res = await fetch('/api/push', { method: 'PUT' });
-    const datos = await res.json().catch(() => ({}));
-    setNota(datos.ok ? 'Enviada. Debería aparecer en unos segundos.' : 'No llegó a ningún dispositivo.');
-    setOcupado(false);
+    try {
+      const res = await fetch('/api/push', { method: 'PUT' });
+      if (!res.ok) {
+        setNota(`No se pudo enviar la prueba: ${await motivoDeError(res)}`);
+        return;
+      }
+      const datos = await res.json();
+      setNota(datos.ok ? 'Enviada. Debería aparecer en unos segundos.' : `No se envió: ${datos.motivo}`);
+    } catch {
+      setNota('Sin conexión con el servidor. Revisá tu internet y probá de nuevo.');
+    } finally {
+      setOcupado(false);
+    }
   }
 
   async function desactivar() {
