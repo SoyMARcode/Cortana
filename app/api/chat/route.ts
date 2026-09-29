@@ -70,19 +70,17 @@ export async function POST(req: Request) {
   const esAdmin = await esAdministrador(user.email);
   const tools = crearHerramientas(user.id, user.email, zonaHorariaValida(zonaHoraria), esAdmin);
 
-  const historial = await convertToModelMessages(ventanaParaModelo(messages));
+  const historial: ModelMessage[] = await convertToModelMessages(ventanaParaModelo(messages));
   // Caché en dos puntos: después de las instrucciones (herramientas + personalidad,
   // iguales en cada llamada) y al final del historial (el próximo turno lo reutiliza).
+  // En AI SDK v7 el sistema va en `instructions`: no se admite como mensaje.
   const ultimo = historial[historial.length - 1];
   if (ultimo) ultimo.providerOptions = { ...ultimo.providerOptions, ...CACHE };
-  const modelMessages: ModelMessage[] = [
-    { role: 'system', content: personalidad, providerOptions: CACHE },
-    ...historial,
-  ];
 
   const result = streamText({
     model: anthropic('claude-sonnet-5'),
-    messages: modelMessages,
+    instructions: { role: 'system', content: personalidad, providerOptions: CACHE },
+    messages: historial,
     tools,
     activeTools: esAdmin
       ? undefined
