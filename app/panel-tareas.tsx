@@ -2,6 +2,7 @@
 
 import { agruparTareas, textoAviso, textoPlazo, type Libreta } from '@/lib/libreta';
 import { IconoReloj } from './iconos';
+import { NOMBRE } from '@/lib/marca';
 
 /**
  * Pendientes agrupados por cuándo vencen + contactos. Se usa en la columna
@@ -32,7 +33,7 @@ export default function PanelTareas({
 
       {grupos.length === 0 && (
         <p className="fuente-editorial text-sm italic text-[var(--ink-soft)]">
-          No tenés nada pendiente. Pedile a Cortana que te anote algo.
+          No tenés nada pendiente. Pedile a {NOMBRE} que te anote algo.
         </p>
       )}
 

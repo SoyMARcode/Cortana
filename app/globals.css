@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
-  Tokens de Cortana — libreta de notas personal, no "chat de SaaS".
+  Tokens de QIR — libreta de notas personal, no "chat de SaaS".
   Paleta papel gris-azulado frío, un único acento cálido reservado
   para lo urgente, un verde apagado para lo ya resuelto.
 */
@@ -58,6 +58,110 @@ body {
 
 .fuente-editorial {
   font-family: var(--font-editorial), Georgia, serif;
+}
+
+/* Alertas (SweetAlert2) con la estética de la libreta: papel, tinta, sin sombras de SaaS. */
+.swal2-container.swal2-backdrop-show {
+  background: color-mix(in srgb, var(--ink) 35%, transparent);
+}
+
+.swal2-popup.alerta {
+  background: var(--paper-note);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  font-family: var(--font-humanista), ui-sans-serif, system-ui, sans-serif;
+  padding: 1.5rem 1.25rem 1.25rem;
+}
+
+.swal2-popup.alerta .alerta-titulo {
+  color: var(--ink);
+  font-size: 1.6rem;
+  font-style: italic;
+  font-weight: 500;
+}
+
+.swal2-popup.alerta .alerta-texto {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.swal2-popup.alerta .alerta-acciones {
+  gap: 0.75rem;
+}
+
+.swal2-popup.alerta .alerta-boton {
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink);
+  padding: 0.55rem 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms;
+}
+
+.swal2-popup.alerta .alerta-boton:hover {
+  border-color: var(--ink);
+}
+
+.swal2-popup.alerta .alerta-boton-principal {
+  border-color: var(--ink);
+}
+
+.swal2-popup.alerta .alerta-boton-principal:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.swal2-popup.alerta .alerta-boton:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.swal2-popup.alerta .swal2-icon.swal2-success {
+  border-color: var(--teal);
+  color: var(--teal);
+}
+.swal2-popup.alerta .swal2-icon.swal2-success [class^='swal2-success-line'] {
+  background-color: var(--teal);
+}
+.swal2-popup.alerta .swal2-icon.swal2-success .swal2-success-ring {
+  border-color: color-mix(in srgb, var(--teal) 30%, transparent);
+}
+.swal2-popup.alerta .swal2-icon.swal2-success [class^='swal2-success-circular-line'],
+.swal2-popup.alerta .swal2-icon.swal2-success .swal2-success-fix {
+  background-color: var(--paper-note);
+}
+
+.swal2-popup.alerta .swal2-icon.swal2-warning,
+.swal2-popup.alerta .swal2-icon.swal2-error {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.swal2-popup.alerta .swal2-icon.swal2-error [class^='swal2-x-mark-line'] {
+  background-color: var(--amber);
+}
+
+.swal2-popup.alerta .swal2-icon.swal2-info,
+.swal2-popup.alerta .swal2-icon.swal2-question {
+  border-color: var(--rule);
+  color: var(--ink-soft);
+}
+
+.swal2-popup.alerta .swal2-timer-progress-bar {
+  background: var(--rule);
+}
+
+.swal2-popup.alerta-toast {
+  padding: 0.6rem 0.9rem;
+}
+
+.swal2-popup.alerta-toast .alerta-toast-texto {
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
 @keyframes escribir-nota {

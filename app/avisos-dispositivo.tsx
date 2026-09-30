@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { avisarError, notificar } from '@/lib/alertas';
+import { NOMBRE } from '@/lib/marca';
 
 type Estado = 'cargando' | 'no-soportado' | 'instalar-ios' | 'bloqueado' | 'inactivo' | 'activo';
 
@@ -57,7 +59,6 @@ const ENLACE =
 export default function AvisosDispositivo() {
   const [estado, setEstado] = useState<Estado>('cargando');
   const [ocupado, setOcupado] = useState(false);
-  const [nota, setNota] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -77,7 +78,6 @@ export default function AvisosDispositivo() {
 
   async function activar() {
     setOcupado(true);
-    setNota('');
     try {
       const permiso = await Notification.requestPermission();
       if (permiso !== 'granted') {
@@ -96,16 +96,16 @@ export default function AvisosDispositivo() {
       });
       if (!res.ok) {
         await sub.unsubscribe();
-        setNota(`No se pudo guardar este dispositivo: ${await motivoDeError(res)}`);
+        avisarError('No se pudo guardar este dispositivo', await motivoDeError(res));
         return;
       }
       setEstado('activo');
-      setNota('Listo. Te mandé una de prueba.');
+      notificar('Avisos activados. Te mandé uno de prueba.');
       await fetch('/api/push', { method: 'PUT' });
     } catch (e) {
       console.error('[push] Error activando:', e);
       const detalle = e instanceof Error ? e.message : String(e);
-      setNota(`No se pudieron activar los avisos en este navegador: ${detalle}`);
+      avisarError('No se pudieron activar los avisos', `En este navegador falló: ${detalle}`);
     } finally {
       setOcupado(false);
     }
@@ -116,13 +116,14 @@ export default function AvisosDispositivo() {
     try {
       const res = await fetch('/api/push', { method: 'PUT' });
       if (!res.ok) {
-        setNota(`No se pudo enviar la prueba: ${await motivoDeError(res)}`);
+        avisarError('No se pudo enviar la prueba', await motivoDeError(res));
         return;
       }
       const datos = await res.json();
-      setNota(datos.ok ? 'Enviada. Debería aparecer en unos segundos.' : `No se envió: ${datos.motivo}`);
+      if (datos.ok) notificar('Enviada. Debería aparecer en unos segundos.');
+      else avisarError('No se envió la prueba', datos.motivo);
     } catch {
-      setNota('Sin conexión con el servidor. Revisá tu internet y probá de nuevo.');
+      avisarError('Sin conexión', 'No hay conexión con el servidor. Revisá tu internet y probá de nuevo.');
     } finally {
       setOcupado(false);
     }
@@ -141,7 +142,6 @@ export default function AvisosDispositivo() {
       await sub.unsubscribe();
     }
     setEstado('inactivo');
-    setNota('');
     setOcupado(false);
   }
 
@@ -155,7 +155,7 @@ export default function AvisosDispositivo() {
 
       {estado === 'instalar-ios' && (
         <p className="text-[var(--ink-soft)]">
-          En iPhone, primero instalá Cortana: tocá <b className="text-[var(--ink)]">Compartir</b> y
+          En iPhone, primero instalá {NOMBRE}: tocá <b className="text-[var(--ink)]">Compartir</b> y
           después <b className="text-[var(--ink)]">Agregar a inicio</b>. Abrila desde ese ícono para
           activar los avisos.
         </p>
@@ -171,7 +171,7 @@ export default function AvisosDispositivo() {
       {estado === 'inactivo' && (
         <>
           <p className="text-[var(--ink-soft)]">
-            Recibí tus recordatorios como notificación, aunque Cortana esté cerrada.
+            Recibí tus recordatorios como notificación, aunque {NOMBRE} esté cerrada.
           </p>
           <button
             onClick={activar}
@@ -195,7 +195,6 @@ export default function AvisosDispositivo() {
         </div>
       )}
 
-      {nota && <p className="text-[var(--ink-soft)]">{nota}</p>}
     </section>
   );
 }

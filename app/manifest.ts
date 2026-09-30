@@ -1,10 +1,11 @@
 import type { MetadataRoute } from 'next';
+import { NOMBRE } from '@/lib/marca';
 
-/** Hace que Cortana se pueda instalar como app en el celular y la computadora. */
+/** Hace que QIR se pueda instalar como app en el celular y la computadora. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Cortana',
-    short_name: 'Cortana',
+    name: NOMBRE,
+    short_name: NOMBRE,
     description: 'Tu asistente personal: tareas, recordatorios y avisos.',
     lang: 'es',
     start_url: '/',

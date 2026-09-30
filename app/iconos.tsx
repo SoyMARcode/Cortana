@@ -2,6 +2,8 @@
  * Íconos de trazo fino, del color del texto (currentColor). Reemplazan a
  * los emojis para que se vean iguales en todos los sistemas.
  */
+import { LOGO, NOMBRE } from '@/lib/marca';
+
 type Props = { className?: string };
 
 function Svg({ className = 'h-4 w-4', children }: Props & { children: React.ReactNode }) {
@@ -61,12 +63,27 @@ export const IconoCheck = (p: Props) => (
   </Svg>
 );
 
-/** El sello de Cortana: anillo de tinta con un punto ámbar. */
-export function Sello({ className = 'h-[22px] w-[22px]' }: Props) {
+/** El logo de QIR en tinta; toma el color del texto, así sirve en claro y oscuro. */
+export function Logo({ className = 'h-[22px] w-auto' }: Props) {
+  const { anillo: a } = LOGO;
   return (
-    <span aria-hidden="true" className={`relative inline-block shrink-0 ${className}`}>
-      <span className="absolute inset-0 rounded-full border-[3px] border-[var(--ink)]" />
-      <span className="absolute -right-[5px] -top-[5px] h-[9px] w-[9px] rounded-full bg-[var(--amber)] shadow-[0_0_0_2px_var(--paper)]" />
-    </span>
+    <svg
+      viewBox={`0 0 ${LOGO.ancho} ${LOGO.alto}`}
+      fill="currentColor"
+      role="img"
+      aria-label={NOMBRE}
+      className={`shrink-0 text-[var(--ink)] ${className}`}
+    >
+      <defs>
+        <mask id="qir-corte" maskUnits="userSpaceOnUse" x="0" y="0" width={LOGO.ancho} height={LOGO.alto}>
+          <rect width={LOGO.ancho} height={LOGO.alto} fill="#fff" />
+          <polygon points={LOGO.corte} fill="#000" />
+        </mask>
+      </defs>
+      <circle cx={a.cx} cy={a.cy} r={a.r} fill="none" stroke="currentColor" strokeWidth={a.grosor} mask="url(#qir-corte)" />
+      <polygon points={LOGO.cola} />
+      <rect x={LOGO.i.x} y={LOGO.i.y} width={LOGO.i.ancho} height={LOGO.i.alto} />
+      <path d={LOGO.r} />
+    </svg>
   );
 }

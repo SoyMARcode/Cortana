@@ -1,4 +1,4 @@
--- Cortana Agent — esquema de base de datos (Supabase / Postgres)
+-- QIR — esquema de base de datos (Supabase / Postgres)
 -- Ejecutar esto en: Supabase Dashboard → SQL Editor → New query → Run
 -- Es seguro correrlo más de una vez: no da error si ya existe todo.
 
@@ -237,7 +237,7 @@ begin
   if new.email is null or not exists (
     select 1 from public.invitaciones where email = lower(new.email)
   ) then
-    raise exception 'Este email no está invitado a Cortana';
+    raise exception 'Este email no está invitado a QIR';
   end if;
   return new;
 end;

@@ -19,7 +19,7 @@ export function pushDisponible(): boolean {
   if (!publica || !privada) return false;
   if (!configurado) {
     webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT || 'mailto:cortana@example.com',
+      process.env.VAPID_SUBJECT || 'mailto:qir@example.com',
       publica,
       privada
     );

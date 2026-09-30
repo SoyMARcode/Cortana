@@ -1,11 +1,12 @@
 import { Resend } from 'resend';
-import { SELLO_PNG_BASE64 } from '@/lib/email-sello';
+import { LOGO_ALTO, LOGO_ANCHO, LOGO_PNG_BASE64 } from '@/lib/email-logo';
+import { NOMBRE } from '@/lib/marca';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const REMITENTE = process.env.RESEND_FROM_EMAIL || 'Cortana <onboarding@resend.dev>';
+const REMITENTE = process.env.RESEND_FROM_EMAIL || `${NOMBRE} <onboarding@resend.dev>`;
 
-const SELLO_CID = 'sello-cortana';
+const LOGO_CID = 'logo-qir';
 
 // Misma paleta que la app (app/globals.css). Los correos van con estilos
 // en línea y tablas porque Gmail/Outlook ignoran casi todo el CSS moderno.
@@ -49,7 +50,7 @@ export function fechaLegible(fechaISO: string): string {
 }
 
 /**
- * Plantilla "membrete": sello + "Cortana" arriba como el encabezado de una
+ * Plantilla "membrete": el logo arriba como el encabezado de una
  * carta, el cuerpo, y una línea de pie. `cuerpoHtml` ya debe venir escapado.
  */
 function plantilla(cuerpoHtml: string, pie: string): string {
@@ -62,16 +63,7 @@ function plantilla(cuerpoHtml: string, pie: string): string {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px; font-family: ${SANS}; font-size: 15px; line-height: 1.6; color: ${TINTA};">
           <tr>
             <td style="padding-bottom: 16px; border-bottom: 1px solid ${LINEA};">
-              <table role="presentation" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding-right: 10px; vertical-align: middle;">
-                    <img src="cid:${SELLO_CID}" width="28" height="28" alt="" style="display: block; border: 0;">
-                  </td>
-                  <td style="vertical-align: middle; font-family: ${SERIF}; font-style: italic; font-size: 22px; color: ${TINTA};">
-                    Cortana
-                  </td>
-                </tr>
-              </table>
+              <img src="cid:${LOGO_CID}" width="${LOGO_ANCHO}" height="${LOGO_ALTO}" alt="${NOMBRE}" style="display: block; border: 0; font-family: ${SANS}; font-size: 20px; font-weight: bold; color: ${TINTA};">
             </td>
           </tr>
           <tr>
@@ -110,10 +102,10 @@ async function enviar(params: {
       replyTo: params.responderA,
       attachments: [
         {
-          content: Buffer.from(SELLO_PNG_BASE64, 'base64'),
-          filename: 'cortana.png',
+          content: Buffer.from(LOGO_PNG_BASE64, 'base64'),
+          filename: 'qir.png',
           contentType: 'image/png',
-          contentId: SELLO_CID,
+          contentId: LOGO_CID,
         },
       ],
     });
@@ -158,7 +150,7 @@ export function enviarRecordatorio(params: {
     html: plantilla(
       `<p style="margin: 0 0 14px;">Tu tarea <strong>${tituloSeguro}</strong> vence el <strong>${escaparHtml(fechaLegible(fechaLimite))}</strong>.</p>
        <p style="margin: 0 0 14px;">${cierre}</p>`,
-      'Recordatorio automático de Cortana.'
+      `Recordatorio automático de ${NOMBRE}.`
     ),
   });
 }
@@ -176,7 +168,7 @@ export function enviarAvisoConHora(params: {
       `<p style="margin: 0 0 14px;">Me pediste que te lo recordara:</p>
        <p style="margin: 0 0 14px; font-family: ${SERIF}; font-size: 20px; line-height: 1.4;">${escaparHtml(params.mensaje)}</p>
        <p style="margin: 0 0 14px; color: ${TINTA_SUAVE};">Programado para el ${escaparHtml(params.cuandoLocal)}.</p>`,
-      'Recordatorio programado en Cortana.'
+      `Recordatorio programado en ${NOMBRE}.`
     ),
   });
 }
@@ -194,8 +186,8 @@ export function enviarCorreoLibre(params: {
   const esParaSiMismo =
     params.destinatario.toLowerCase() === params.remitenteHumano.toLowerCase();
   const pie = esParaSiMismo
-    ? 'Enviado por Cortana a pedido tuyo.'
-    : `Enviado por Cortana en nombre de ${escaparHtml(params.remitenteHumano)}. Si respondés, tu respuesta le llega a esa persona.`;
+    ? `Enviado por ${NOMBRE} a pedido tuyo.`
+    : `Enviado por ${NOMBRE} en nombre de ${escaparHtml(params.remitenteHumano)}. Si respondés, tu respuesta le llega a esa persona.`;
 
   return enviar({
     destinatario: params.destinatario,

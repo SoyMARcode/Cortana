@@ -9,11 +9,13 @@ import {
 } from 'ai';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { hablar, detenerVoz, crearReconocimientoDeVoz } from '@/lib/voice';
+import { hablar, detenerVoz, iniciarDictado, soportaDictado, type Dictado } from '@/lib/voice';
 import { cargarLibreta, type Libreta } from '@/lib/libreta';
+import { avisar, confirmar, notificar } from '@/lib/alertas';
 import PanelTareas from './panel-tareas';
 import AvisosDispositivo, { registrarServiceWorker } from './avisos-dispositivo';
-import { IconoMarcador, IconoMicrofono, IconoPersona, IconoReloj, IconoSobre, Sello } from './iconos';
+import { IconoMarcador, IconoMicrofono, IconoPersona, IconoReloj, IconoSobre, Logo } from './iconos';
+import { NOMBRE } from '@/lib/marca';
 
 const NOMBRES_HERRAMIENTA: Record<string, string> = {
   crear_tarea: 'anotado',
@@ -236,7 +238,7 @@ export default function Chat({
     }),
     // Tras aprobar o cancelar una acción, la conversación sigue sola.
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    // Cortana pudo haber creado, editado o borrado tareas: el panel se pone al día.
+    // QIR pudo haber creado, editado o borrado tareas: el panel se pone al día.
     onFinish: () => {
       refrescarLibreta();
     },
@@ -248,7 +250,8 @@ export default function Chat({
   const ultimoLeidoRef = useRef<string | null>(
     mensajesIniciales[mensajesIniciales.length - 1]?.id ?? null
   );
-  const reconocimientoRef = useRef<any>(null);
+  const dictadoRef = useRef<Dictado | null>(null);
+  const campoRef = useRef<HTMLInputElement>(null);
   const finRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const esperandoAprobacion = tieneAprobacionPendiente(messages);
@@ -256,6 +259,8 @@ export default function Chat({
 
   useEffect(() => {
     registrarServiceWorker();
+    // Al salir de la pantalla se apaga el micrófono.
+    return () => dictadoRef.current?.cancelar();
   }, []);
 
   useEffect(() => {
@@ -288,9 +293,21 @@ export default function Chat({
   }, [hojaAbierta]);
 
   async function cancelarAviso(id: string) {
+    const aviso = libreta.recordatorios.find((r) => r.id === id);
+    const seguro = await confirmar(
+      '¿Cancelo este aviso?',
+      aviso ? `"${aviso.mensaje}" no te va a llegar.` : 'Este aviso no te va a llegar.',
+      { si: 'Cancelar aviso', no: 'Dejarlo', peligro: true }
+    );
+    if (!seguro) return;
     setLibreta((l) => ({ ...l, recordatorios: l.recordatorios.filter((r) => r.id !== id) }));
     const { error } = await supabase.from('recordatorios').delete().eq('id', id);
-    if (error) refrescarLibreta();
+    if (error) {
+      refrescarLibreta();
+      notificar('No se pudo cancelar el aviso. Probá de nuevo.', 'error');
+    } else {
+      notificar('Aviso cancelado');
+    }
   }
 
   async function alternarTarea(id: string, completada: boolean) {
@@ -302,12 +319,17 @@ export default function Chat({
       ),
     }));
     const { error } = await supabase.from('tareas').update({ completada }).eq('id', id);
-    if (error) refrescarLibreta();
+    if (error) {
+      refrescarLibreta();
+      notificar('No se pudo guardar el cambio de la tarea.', 'error');
+    }
   }
 
   function enviar(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || esperandoAprobacion) return;
+    // Si se envía mientras dicta, lo que falte reconocer ya no debe pisar el campo vacío.
+    dictadoRef.current?.cancelar();
     clearError();
     sendMessage({ text: input });
     setInput('');
@@ -315,25 +337,42 @@ export default function Chat({
 
   function alternarMicrofono() {
     if (escuchando) {
-      reconocimientoRef.current?.stop();
-      setEscuchando(false);
+      dictadoRef.current?.detener();
       return;
     }
-    const recognition = crearReconocimientoDeVoz((texto) => {
-      setInput(texto);
-      setEscuchando(false);
+    if (!soportaDictado()) {
+      avisar(
+        'Sin dictado en este navegador',
+        'Tu navegador no reconoce voz. Probá con Chrome o Edge, o usá el micrófono del teclado del celular.'
+      );
+      return;
+    }
+
+    // Lo dictado se suma a lo que ya estaba escrito, no lo reemplaza.
+    const escrito = input.trim();
+    const dictado = iniciarDictado({
+      alTexto: (texto) => setInput(escrito ? `${escrito} ${texto}` : texto),
+      alError: (mensaje) => {
+        if (mensaje) avisar('No se pudo dictar', mensaje);
+      },
+      alTerminar: () => {
+        setEscuchando(false);
+        dictadoRef.current = null;
+        campoRef.current?.focus();
+      },
     });
-    if (!recognition) {
-      alert('Tu navegador no soporta reconocimiento de voz. Probá con Chrome o Edge.');
-      return;
-    }
-    recognition.onend = () => setEscuchando(false);
-    reconocimientoRef.current = recognition;
-    recognition.start();
+    if (!dictado) return;
+    dictadoRef.current = dictado;
     setEscuchando(true);
   }
 
   async function nuevaConversacion() {
+    const seguro = await confirmar(
+      '¿Empezamos de cero?',
+      'Se borra el historial de esta conversación. Tus tareas y recordatorios quedan como están.',
+      { si: 'Borrar historial', no: 'Seguir', peligro: true }
+    );
+    if (!seguro) return;
     detenerVoz();
     const { data } = await supabase.auth.getUser();
     if (data.user) await supabase.from('conversaciones').delete().eq('user_id', data.user.id);
@@ -343,6 +382,10 @@ export default function Chat({
   }
 
   async function cerrarSesion() {
+    const seguro = await confirmar('¿Cerrar sesión?', 'Para volver vas a necesitar tu email y contraseña.', {
+      si: 'Cerrar sesión',
+    });
+    if (!seguro) return;
     detenerVoz();
     await supabase.auth.signOut();
     router.push('/login');
@@ -368,10 +411,9 @@ export default function Chat({
   return (
     <div className="grid h-dvh grid-rows-[auto_1fr] bg-[var(--paper)] text-[var(--ink)] md:grid-cols-[300px_1fr]">
       <header className="col-span-full flex items-center justify-between gap-4 border-b border-[var(--paper-line)] px-4 py-3 md:px-6 md:py-3.5">
-        <div className="flex items-center gap-2.5">
-          <Sello />
-          <h1 className="fuente-editorial text-[22px] italic md:text-2xl">Cortana</h1>
-        </div>
+        <h1 className="flex items-center">
+          <Logo className="h-[18px] w-auto md:h-5" />
+        </h1>
         <div className="hidden items-baseline gap-5 text-sm text-[var(--ink-soft)] md:flex">
           <span className="fuente-editorial italic">{fechaDeHoy()}</span>
           {acciones}
@@ -409,7 +451,7 @@ export default function Chat({
           <div className="mx-auto flex max-w-[700px] flex-col gap-5">
             {messages.length === 0 && (
               <p className="fuente-editorial text-center italic text-[var(--ink-soft)]">
-                Escribile algo a Cortana — por ejemplo, &quot;recordame entregar el informe el
+                Escribile algo a {NOMBRE} — por ejemplo, &quot;recordame entregar el informe el
                 viernes&quot;.
               </p>
             )}
@@ -480,12 +522,15 @@ export default function Chat({
               <IconoMicrofono />
             </button>
             <input
+              ref={campoRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={
                 esperandoAprobacion
                   ? 'Primero confirmá o cancelá lo de arriba'
-                  : 'Escribí o usá el micrófono...'
+                  : escuchando
+                    ? 'Te escucho, hablá...'
+                    : 'Escribí o usá el micrófono...'
               }
               className="min-w-0 flex-1 border-b border-[var(--paper-line)] bg-transparent px-1 py-2 text-base outline-none placeholder:text-[var(--ink-soft)] focus:border-[var(--ink)] md:text-[15px]"
             />

@@ -1,4 +1,4 @@
-// Service worker de Cortana: recibe las notificaciones push y abre la app
+// Service worker de QIR (nombre fijo acá: este archivo no puede importar lib/marca.ts): recibe las notificaciones push y abre la app
 // al tocarlas. Se sirve desde /sw.js para que su alcance sea todo el sitio.
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -10,11 +10,11 @@ self.addEventListener('push', (event) => {
   try {
     datos = event.data.json();
   } catch {
-    datos = { titulo: 'Cortana', cuerpo: event.data.text() };
+    datos = { titulo: 'QIR', cuerpo: event.data.text() };
   }
 
   event.waitUntil(
-    self.registration.showNotification(datos.titulo || 'Cortana', {
+    self.registration.showNotification(datos.titulo || 'QIR', {
       body: datos.cuerpo || '',
       icon: '/icono-192.png',
       badge: '/insignia-96.png',
@@ -32,7 +32,7 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ventanas) => {
-      // Si Cortana ya está abierta, la trae al frente en vez de abrir otra.
+      // Si QIR ya está abierta, la trae al frente en vez de abrir otra.
       const abierta = ventanas.find((v) => v.url.startsWith(self.location.origin));
       if (abierta) return abierta.focus();
       return self.clients.openWindow(url);

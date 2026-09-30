@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { enviarPush, pushDisponible } from '@/lib/push';
+import { NOMBRE } from '@/lib/marca';
 
 /**
  * Solo servicios push reales (Chrome/Edge/Android, Firefox, Safari/iOS,
@@ -102,7 +103,7 @@ export async function PUT() {
   }
 
   const entregados = await enviarPush(user.id, {
-    titulo: 'Cortana',
+    titulo: NOMBRE,
     cuerpo: 'Así te van a llegar los avisos. Todo listo.',
     tag: 'prueba',
   });

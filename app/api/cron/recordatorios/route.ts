@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { enviarAvisoConHora } from '@/lib/email';
 import { formatearEnZona } from '@/lib/zona-horaria';
 import { enviarPush } from '@/lib/push';
+import { NOMBRE } from '@/lib/marca';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,7 @@ export async function GET(req: Request) {
     // usuario no activó avisos en ningún dispositivo o no llegó a ninguno.
     const entregadosPush = await enviarPush(r.user_id, {
       titulo: r.mensaje,
-      cuerpo: `Recordatorio de Cortana · ${cuandoLocal}`,
+      cuerpo: `Recordatorio de ${NOMBRE} · ${cuandoLocal}`,
       tag: `recordatorio-${r.id}`,
     });
 

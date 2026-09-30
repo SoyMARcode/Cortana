@@ -417,7 +417,7 @@ export function crearHerramientas(
 
     invitar_persona: tool({
       description:
-        'Invita a una persona del equipo a usar Cortana: agrega su email a la lista de invitados para que pueda registrarse. Solo administradores.',
+        'Invita a una persona del equipo a usar QIR: agrega su email a la lista de invitados para que pueda registrarse. Solo administradores.',
       inputSchema: z.object({
         email: z.email().describe('Email de la persona a invitar'),
         es_admin: z
@@ -439,7 +439,7 @@ export function crearHerramientas(
 
     listar_equipo: tool({
       description:
-        'Lista las personas invitadas a Cortana, si ya crearon su cuenta y quién es administrador. Solo administradores.',
+        'Lista las personas invitadas a QIR, si ya crearon su cuenta y quién es administrador. Solo administradores.',
       inputSchema: z.object({}),
       execute: async () => {
         if (!esAdmin) return soloAdmin;

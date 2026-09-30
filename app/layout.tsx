@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Source_Serif_4, Public_Sans } from "next/font/google";
 import "./globals.css";
+import { NOMBRE } from "@/lib/marca";
 
-// Serif editorial: para el nombre "Cortana" y las fechas, como el
+// Serif editorial: para las fechas, como el
 // membrete de una carta. Sans humanista: para todo lo demás, legible
 // y cálido sin caer en el look "producto de SaaS".
 const serifEditorial = Source_Serif_4({
@@ -19,10 +20,10 @@ const sansHumanista = Public_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Cortana",
+  title: NOMBRE,
   description: "Tu asistente personal",
   appleWebApp: {
-    title: "Cortana",
+    title: NOMBRE,
     capable: true,
     statusBarStyle: "default",
   },
