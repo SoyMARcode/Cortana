@@ -18,8 +18,16 @@ const API = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
 /** Vale el permiso de acceso: se renueva un minuto antes de vencer. */
 const MARGEN_MS = 60_000;
 
+/**
+ * Las credenciales sin espacios ni saltos de línea en los bordes: al
+ * pegarlas en Vercel es fácil que se cuele un Enter, y Google rechaza el ID
+ * con "invalid_client".
+ */
+const idCliente = () => (process.env.GOOGLE_CLIENT_ID ?? '').trim();
+const secretoCliente = () => (process.env.GOOGLE_CLIENT_SECRET ?? '').trim();
+
 export function googleConfigurado(): boolean {
-  return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  return Boolean(idCliente() && secretoCliente());
 }
 
 // ---------- Cifrado de los permisos (AES-256-GCM) ----------
@@ -69,7 +77,7 @@ export function leerEstado(estado: string | null): string | null {
 
 export function enlaceDeAutorizacion(userId: string): string {
   const p = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID!,
+    client_id: idCliente(),
     redirect_uri: REDIRECCION_GOOGLE,
     response_type: 'code',
     scope: ALCANCES.join(' '),
@@ -98,8 +106,8 @@ async function pedirToken(cuerpo: Record<string, string>): Promise<RespuestaToke
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      client_id: idCliente(),
+      client_secret: secretoCliente(),
       ...cuerpo,
     }),
   });
