@@ -68,9 +68,18 @@ export function desbloquearVoz() {
   cargarVoces();
 }
 
-/** Saca lo que no tiene sentido leer en voz alta: enlaces, asteriscos, numerales. */
+/**
+ * Emojis (incluidas banderas, tonos de piel y combinaciones) y flechas como
+ * ↻: la voz los leía por su nombre ("marca de verificación", "paraguas").
+ */
+const EMOJIS =
+  /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}←-⇿⬀-⯿️‍⃣]/gu;
+
+/** Saca lo que no tiene sentido leer en voz alta: emojis, enlaces, asteriscos, numerales. */
 function textoParaLeer(texto: string): string {
   return texto
+    .replace(EMOJIS, '')
+    .replace(/(\d)\s?°C?/g, '$1 grados')
     .replace(/https?:\/\/\S+/g, '')
     .replace(/[*_#`>]+/g, '')
     .replace(/\s+/g, ' ')

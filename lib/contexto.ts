@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { horaEnPunto } from '@/lib/zona-horaria';
 
 export type Ajustes = {
   zona_horaria: string;
@@ -84,7 +85,9 @@ export async function cargarContexto(
   if (a) {
     lineas.push(
       `Resumen semanal automático: ${
-        a.resumen_semanal ? `activado, los ${DIAS[a.resumen_dia]} a las ${a.resumen_hora}:00` : 'desactivado'
+        a.resumen_semanal
+          ? `activado, los ${DIAS[a.resumen_dia]} a las ${horaEnPunto(a.resumen_hora)}`
+          : 'desactivado'
       }. Aviso de lluvia por la mañana: ${a.aviso_lluvia ? 'activado' : 'desactivado'}. Calendario: ${
         a.calendario_ics ? 'conectado' : 'no conectado'
       }.`

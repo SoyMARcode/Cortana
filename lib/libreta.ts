@@ -63,13 +63,14 @@ export async function cargarLibreta(supabase: SupabaseClient): Promise<Libreta> 
   };
 }
 
-/** "hoy 6:45", "mañana 7:00", "jue 1, 9:30" en la hora local del navegador (con segundos si los tiene). */
+/** "hoy 6:45 a. m.", "mañana 7:00 p. m.", "jue 1, 9:30 a. m." en la hora local del navegador (con segundos si los tiene). */
 export function textoAviso(enviarEn: string): string {
   const instante = new Date(enviarEn);
   const hora = new Intl.DateTimeFormat('es', {
     hour: 'numeric',
     minute: '2-digit',
     second: instante.getUTCSeconds() ? '2-digit' : undefined,
+    hour12: true,
   }).format(instante);
   const fecha = new Intl.DateTimeFormat('en-CA').format(instante);
   const plazo = textoPlazo(fecha);

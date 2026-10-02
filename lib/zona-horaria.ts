@@ -71,7 +71,7 @@ export function partesLocales(instante: Date, zona: string) {
 }
 
 /**
- * "lunes 29 de septiembre, 6:45" en la hora local de `zona`. Si el instante
+ * "lunes 29 de septiembre, 6:45 a. m." en la hora local de `zona`. Si el instante
  * tiene segundos (un aviso "en 30 segundos"), también los muestra.
  */
 export function formatearEnZona(instante: Date, zona: string): string {
@@ -86,6 +86,17 @@ export function formatearEnZona(instante: Date, zona: string): string {
     hour: 'numeric',
     minute: '2-digit',
     second: instante.getUTCSeconds() ? '2-digit' : undefined,
+    hour12: true,
   }).format(instante);
   return `${dia}, ${hora}`;
+}
+
+/** 8 -> "8:00 a. m.", 20 -> "8:00 p. m." */
+export function horaEnPunto(hora: number): string {
+  return new Intl.DateTimeFormat('es', {
+    timeZone: 'UTC',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date(Date.UTC(2000, 0, 1, hora)));
 }

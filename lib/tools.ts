@@ -536,6 +536,7 @@ export function crearHerramientas(
             timeZone: zonaHoraria,
             dateStyle: 'full',
             timeStyle: 'medium',
+            hour12: true,
           }).format(ahora),
           // Mismo formato que fecha_limite (YYYY-MM-DD) y que "cuando" de los recordatorios.
           hoy: local.fecha,
