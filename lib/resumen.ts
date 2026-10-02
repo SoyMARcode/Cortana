@@ -3,6 +3,7 @@ import { fechaLegible } from '@/lib/email';
 import { formatearEnZona, partesLocales } from '@/lib/zona-horaria';
 import { eventosEntre } from '@/lib/calendario';
 import { textoRepeticion } from '@/lib/repeticion';
+import { resumirGastos } from '@/lib/gastos';
 
 const SEMANA_MS = 7 * 86_400_000;
 
@@ -65,7 +66,12 @@ export async function armarResumen(
     }
   }
 
-  if (!tareas.length && !avisos.data?.length && !eventos.length && !completadas) return null;
+  // Gastos de los últimos 7 días (de hace una semana a ayer).
+  const gastos = await resumirGastos(supabase, userId, sumarDias(hoy, -7), sumarDias(hoy, -1));
+
+  if (!tareas.length && !avisos.data?.length && !eventos.length && !completadas && !gastos.cantidad) {
+    return null;
+  }
 
   const linea = (t: { titulo: string; fecha_limite: string | null; repeticion: string | null; dias_semana: number[] | null }) => {
     const repite = textoRepeticion(t.repeticion, t.dias_semana);
@@ -92,6 +98,17 @@ export async function armarResumen(
   }
   if (sinFecha.length) {
     bloques.push(`Sin fecha (${sinFecha.length}): ${sinFecha.slice(0, 8).map((t) => t.titulo).join(', ')}${sinFecha.length > 8 ? '…' : ''}`);
+  }
+  if (gastos.cantidad) {
+    const categorias = gastos.por_categoria
+      .slice(0, 4)
+      .map((c) => `${c.categoria} ${c.texto}`)
+      .join(', ');
+    bloques.push(
+      `Gastos de la semana: ${gastos.total_por_moneda.map((m) => m.texto).join(' + ')} en ${
+        gastos.cantidad === 1 ? '1 gasto' : `${gastos.cantidad} gastos`
+      }. Lo que más: ${categorias}.`
+    );
   }
   bloques.push(
     completadas

@@ -64,6 +64,11 @@ export default function PanelTareas({
               />
               <span className={t.completada ? 'text-[var(--ink-soft)] line-through' : ''}>
                 {t.titulo}
+                {t.asignada_por_email && (
+                  <span className="mt-0.5 block text-xs text-[var(--ink-soft)]">
+                    de {t.asignada_por_email.split('@')[0]}
+                  </span>
+                )}
                 {t.repeticion && (
                   <span
                     title={`Se repite ${textoRepeticion(t.repeticion, t.dias_semana)}`}

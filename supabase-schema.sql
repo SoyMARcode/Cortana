@@ -491,4 +491,74 @@ alter table eventos_avisados enable row level security;
 -- (app/api/calendario/[token]). Se crea la primera vez que lo pide.
 alter table ajustes add column if not exists calendario_token text unique;
 
+-- ============================================================
+-- Mejoras v8 (parte 3): tareas en equipo y gastos.
+-- ============================================================
+
+-- Tareas asignadas: la fila es de quien la recibe (user_id), así le llegan
+-- todos los avisos como a cualquier tarea suya. asignada_por = quién se la
+-- pasó. Las crea el servidor (service role) después de validar que las dos
+-- personas son del equipo.
+alter table tareas add column if not exists asignada_por uuid references auth.users(id) on delete set null;
+alter table tareas add column if not exists asignada_por_email text;
+create index if not exists tareas_asignada_por_idx on tareas(asignada_por) where asignada_por is not null;
+
+-- Cuando alguien completa una tarea que le asignaron, quien se la asignó
+-- recibe un aviso. Se crea como recordatorio inmediato: el reloj de cada
+-- 10 segundos lo entrega por notificación (o correo).
+create or replace function public.avisar_tarea_asignada_completada()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  quien text;
+  zona text;
+begin
+  if new.completada and not old.completada
+     and new.asignada_por is not null and new.asignada_por <> new.user_id then
+    select email into quien from auth.users where id = new.user_id;
+    select zona_horaria into zona from public.ajustes where user_id = new.asignada_por;
+    insert into public.recordatorios (user_id, mensaje, enviar_en, zona_horaria)
+    values (
+      new.asignada_por,
+      left('✅ ' || coalesce(quien, 'Alguien del equipo') || ' completó: ' || new.titulo, 300),
+      now(),
+      coalesce(zona, 'UTC')
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists tareas_avisar_asignada on tareas;
+create trigger tareas_avisar_asignada
+  after update of completada on tareas
+  for each row execute function public.avisar_tarea_asignada_completada();
+
+-- Gastos: privados de cada persona.
+create table if not exists gastos (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  monto numeric(14, 2) not null check (monto > 0),
+  moneda text not null default 'COP' check (char_length(moneda) = 3),
+  categoria text not null default 'otros'
+    check (categoria in ('comida', 'transporte', 'hogar', 'servicios', 'salud', 'ocio',
+                         'compras', 'educacion', 'trabajo', 'otros')),
+  descripcion text check (char_length(descripcion) <= 200),
+  fecha date not null default current_date,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists gastos_user_fecha_idx on gastos(user_id, fecha);
+
+alter table gastos enable row level security;
+
+drop policy if exists "usuarios gestionan sus gastos" on gastos;
+create policy "usuarios gestionan sus gastos"
+  on gastos for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
 notify pgrst, 'reload schema';

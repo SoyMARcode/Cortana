@@ -1,7 +1,8 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
-import { enviarCorreoLibre, type Adjunto as AdjuntoCorreo } from '@/lib/email';
+import { enviarCorreoLibre, fechaLegible, type Adjunto as AdjuntoCorreo } from '@/lib/email';
+import { CATEGORIAS_GASTO, formatearMonto, resumirGastos } from '@/lib/gastos';
 import { formatearEnZona, horaLocalAUtc, partesLocales } from '@/lib/zona-horaria';
 import { REPETICIONES, textoRepeticion } from '@/lib/repeticion';
 import { buscarLugar, pronostico } from '@/lib/clima';
@@ -16,6 +17,25 @@ const MAX_PREFERENCIAS = 40;
 
 /** Tope de apodos por contacto. */
 const MAX_APODOS = 10;
+
+/** Tope de tareas que una persona puede asignar a otras en 24 horas. */
+const LIMITE_ASIGNACIONES_DIARIO = 30;
+
+/** Personas del equipo con cuenta creada: email -> id. */
+async function miembrosDelEquipo(): Promise<Map<string, string>> {
+  const admin = createAdminClient();
+  const [{ data: invitados }, { data: usuarios }] = await Promise.all([
+    admin.from('invitaciones').select('email'),
+    admin.auth.admin.listUsers({ perPage: 1000 }),
+  ]);
+  const invitadosSet = new Set((invitados ?? []).map((i) => i.email.toLowerCase()));
+  const miembros = new Map<string, string>();
+  for (const u of usuarios?.users ?? []) {
+    const email = u.email?.toLowerCase();
+    if (email && invitadosSet.has(email)) miembros.set(email, u.id);
+  }
+  return miembros;
+}
 
 /** Campos de repetición que comparten tareas y recordatorios. */
 const esquemaRepeticion = {
@@ -824,6 +844,202 @@ export function crearHerramientas(
           .eq('user_id', userId);
         if (error) return { ok: false, error: error.message };
         return { ok: true, desconectado: true };
+      },
+    }),
+
+    // ---- Equipo: tareas asignadas a otras personas ----
+
+    companeros_de_equipo: tool({
+      description:
+        'Lista los emails de las personas del equipo que ya tienen cuenta en QIR, para asignarles tareas. Combinalo con los contactos para saber quién es quién.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        const miembros = await miembrosDelEquipo();
+        return {
+          ok: true,
+          equipo: [...miembros.keys()].filter((e) => e !== userEmail?.toLowerCase()),
+        };
+      },
+    }),
+
+    asignar_tarea: tool({
+      description:
+        'Le asigna una tarea a otra persona del equipo: le aparece en su panel y le llega un aviso. Cuando la complete, al usuario le llega otro aviso. Solo para personas del equipo con cuenta (ver companeros_de_equipo).',
+      inputSchema: z.object({
+        email: z.email().describe('Email de la persona del equipo que recibe la tarea'),
+        titulo: z.string().min(1).max(200).describe('Título breve de la tarea'),
+        descripcion: z.string().max(1000).optional().describe('Detalles, opcional'),
+        fecha_limite: z.string().optional().describe('Fecha límite YYYY-MM-DD, si aplica'),
+      }),
+      execute: async ({ email, titulo, descripcion, fecha_limite }) => {
+        const destino = email.trim().toLowerCase();
+        if (destino === userEmail?.toLowerCase()) {
+          return { ok: false, error: 'Es para el propio usuario: usá crear_tarea.' };
+        }
+        const miembros = await miembrosDelEquipo();
+        const destinoId = miembros.get(destino);
+        if (!destinoId) {
+          return {
+            ok: false,
+            error: `${destino} no es del equipo o todavía no creó su cuenta. Un administrador puede invitarlo.`,
+          };
+        }
+
+        const admin = createAdminClient();
+        const { count } = await admin
+          .from('tareas')
+          .select('id', { count: 'exact', head: true })
+          .eq('asignada_por', userId)
+          .gte('created_at', new Date(Date.now() - 86_400_000).toISOString());
+        if ((count ?? 0) >= LIMITE_ASIGNACIONES_DIARIO) {
+          return { ok: false, error: `Límite alcanzado: hasta ${LIMITE_ASIGNACIONES_DIARIO} tareas asignadas por día.` };
+        }
+
+        // La crea el servidor: la fila es de quien la recibe (RLS no deja crearla a nombre de otro).
+        const { data: tarea, error } = await admin
+          .from('tareas')
+          .insert({
+            user_id: destinoId,
+            titulo,
+            descripcion,
+            fecha_limite,
+            asignada_por: userId,
+            asignada_por_email: userEmail ?? null,
+          })
+          .select('id, titulo, fecha_limite')
+          .single();
+        if (error) return { ok: false, error: error.message };
+
+        // El aviso viaja como recordatorio inmediato: notificación o, si no tiene, correo.
+        const { data: suZona } = await admin
+          .from('ajustes')
+          .select('zona_horaria')
+          .eq('user_id', destinoId)
+          .maybeSingle();
+        await admin.from('recordatorios').insert({
+          user_id: destinoId,
+          tarea_id: tarea.id,
+          mensaje: `📋 ${userEmail ?? 'Alguien del equipo'} te asignó: ${titulo}${
+            fecha_limite ? ` (vence el ${fechaLegible(fecha_limite)})` : ''
+          }`.slice(0, 300),
+          enviar_en: new Date().toISOString(),
+          zona_horaria: suZona?.zona_horaria ?? 'UTC',
+        });
+
+        return { ok: true, asignada: { ...tarea, para: destino } };
+      },
+    }),
+
+    tareas_que_asigne: tool({
+      description: 'Lista las tareas que el usuario les asignó a otras personas del equipo y si ya las completaron.',
+      inputSchema: z.object({
+        incluir_completadas: z.boolean().optional().default(false),
+      }),
+      execute: async ({ incluir_completadas }) => {
+        const admin = createAdminClient();
+        let consulta = admin
+          .from('tareas')
+          .select('titulo, fecha_limite, completada, updated_at, user_id')
+          .eq('asignada_por', userId);
+        if (!incluir_completadas) consulta = consulta.eq('completada', false);
+        const { data, error } = await consulta.order('fecha_limite', { ascending: true, nullsFirst: false });
+        if (error) return { ok: false, error: error.message };
+        const emails = new Map([...(await miembrosDelEquipo())].map(([email, id]) => [id, email]));
+        return {
+          ok: true,
+          tareas: (data ?? []).map(({ user_id, ...t }) => ({ ...t, para: emails.get(user_id) ?? 'alguien del equipo' })),
+        };
+      },
+    }),
+
+    // ---- Gastos ----
+
+    registrar_gasto: tool({
+      description:
+        'Anota un gasto del usuario ("gasté 20 mil en el almuerzo"). Pasá el monto como número (20 mil = 20000).',
+      inputSchema: z.object({
+        monto: z.number().positive().max(1e12).describe('Monto como número, ej. 20000 o 15.5'),
+        moneda: z
+          .string()
+          .length(3)
+          .describe('Código ISO de la moneda: COP, ARS, MXN, USD, EUR... La del país del usuario si no dice otra'),
+        categoria: z.enum(CATEGORIAS_GASTO).describe('La categoría que mejor encaja'),
+        descripcion: z.string().max(200).optional().describe('En qué fue, en pocas palabras'),
+        fecha: z.string().optional().describe('YYYY-MM-DD si no fue hoy'),
+      }),
+      execute: async ({ monto, moneda, categoria, descripcion, fecha }) => {
+        const supabase = await createClient();
+        const { data, error } = await supabase
+          .from('gastos')
+          .insert({
+            user_id: userId,
+            monto,
+            moneda: moneda.toUpperCase(),
+            categoria,
+            descripcion,
+            fecha: fecha ?? partesLocales(new Date(), zonaHoraria).fecha,
+          })
+          .select('id, monto, moneda, categoria, descripcion, fecha')
+          .single();
+        if (error) return { ok: false, error: error.message };
+        return { ok: true, gasto: { ...data, texto: formatearMonto(Number(data.monto), data.moneda) } };
+      },
+    }),
+
+    resumen_gastos: tool({
+      description:
+        'Totales de gastos del usuario en un período, por categoría y por moneda, y el gasto más grande. Por defecto, el mes en curso.',
+      inputSchema: z.object({
+        desde: z.string().optional().describe('Primer día YYYY-MM-DD (por defecto, el 1 del mes actual)'),
+        hasta: z.string().optional().describe('Último día YYYY-MM-DD, incluido (por defecto, hoy)'),
+      }),
+      execute: async ({ desde, hasta }) => {
+        const hoy = partesLocales(new Date(), zonaHoraria).fecha;
+        const inicio = desde ?? `${hoy.slice(0, 8)}01`;
+        const fin = hasta ?? hoy;
+        const supabase = await createClient();
+        return { ok: true, desde: inicio, hasta: fin, ...(await resumirGastos(supabase, userId, inicio, fin)) };
+      },
+    }),
+
+    listar_gastos: tool({
+      description: 'Lista los últimos gastos del usuario con su id (para corregir o borrar alguno).',
+      inputSchema: z.object({
+        dias: z.number().int().min(1).max(365).optional().default(30).describe('Cuántos días hacia atrás'),
+      }),
+      execute: async ({ dias }) => {
+        const hoy = partesLocales(new Date(), zonaHoraria).fecha;
+        const desde = new Date(Date.parse(hoy + 'T00:00:00Z') - dias * 86_400_000).toISOString().slice(0, 10);
+        const supabase = await createClient();
+        const { data, error } = await supabase
+          .from('gastos')
+          .select('id, monto, moneda, categoria, descripcion, fecha')
+          .eq('user_id', userId)
+          .gte('fecha', desde)
+          .order('fecha', { ascending: false })
+          .limit(50);
+        if (error) return { ok: false, error: error.message };
+        return {
+          ok: true,
+          gastos: (data ?? []).map((g) => ({ ...g, texto: formatearMonto(Number(g.monto), g.moneda) })),
+        };
+      },
+    }),
+
+    borrar_gasto: tool({
+      description: 'Borra un gasto anotado por error, dado su id (ver listar_gastos).',
+      inputSchema: z.object({ id: z.string().describe('El id del gasto') }),
+      execute: async ({ id }) => {
+        const supabase = await createClient();
+        const { data, error } = await supabase
+          .from('gastos')
+          .delete()
+          .eq('id', id)
+          .eq('user_id', userId)
+          .select('id');
+        if (error) return { ok: false, error: error.message };
+        if (!data?.length) return { ok: false, error: 'No existe ese gasto.' };
+        return { ok: true, borrado: true };
       },
     }),
 

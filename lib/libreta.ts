@@ -8,6 +8,8 @@ export type Tarea = {
   updated_at: string;
   repeticion: string | null;
   dias_semana: number[] | null;
+  /** Si otra persona del equipo te la asignó, su email. */
+  asignada_por_email: string | null;
 };
 
 export type Contacto = { nombre: string; email: string; apodos: string[] };
@@ -40,7 +42,7 @@ export async function cargarLibreta(supabase: SupabaseClient): Promise<Libreta> 
   const [tareas, contactos, recordatorios, ajustes] = await Promise.all([
     supabase
       .from('tareas')
-      .select('id, titulo, fecha_limite, completada, updated_at, repeticion, dias_semana')
+      .select('id, titulo, fecha_limite, completada, updated_at, repeticion, dias_semana, asignada_por_email')
       .or(`completada.eq.false,updated_at.gte.${hace36h}`)
       .order('fecha_limite', { ascending: true, nullsFirst: false }),
     supabase.from('contactos').select('nombre, email, apodos').order('nombre'),

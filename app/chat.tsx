@@ -72,6 +72,13 @@ const NOMBRES_HERRAMIENTA: Record<string, string> = {
   web_search: 'buscando en internet',
   web_fetch: 'leyendo la página',
   enlace_calendario_tareas: 'preparando tu calendario',
+  companeros_de_equipo: 'mirando el equipo',
+  asignar_tarea: 'asignando la tarea',
+  tareas_que_asigne: 'revisando lo que asignaste',
+  registrar_gasto: 'anotando el gasto',
+  resumen_gastos: 'sumando tus gastos',
+  listar_gastos: 'revisando tus gastos',
+  borrar_gasto: 'gasto borrado',
 };
 
 function adjuntosDe(mensaje: UIMessage): Adjunto[] {
@@ -252,6 +259,31 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
         <span className="fuente-editorial italic text-[var(--ink-soft)]">
           {salida.recordatorio.cuando_local}
           {salida.recordatorio.se_repite && ` · ↻ ${salida.recordatorio.se_repite}`}
+        </span>
+      </div>
+    );
+  }
+
+  if (salida?.gasto) {
+    return (
+      <div className={`${CHIP} bg-[var(--paper-note)]`}>
+        <span className="font-medium tabular-nums">{salida.gasto.texto}</span>
+        <span className="fuente-editorial italic text-[var(--ink-soft)]">
+          {salida.gasto.categoria}
+          {salida.gasto.descripcion && ` · ${salida.gasto.descripcion}`}
+        </span>
+      </div>
+    );
+  }
+
+  if (salida?.asignada) {
+    return (
+      <div className={`${CHIP} bg-[var(--teal-soft)]`}>
+        <IconoPersona />
+        <span className="font-medium">{salida.asignada.titulo}</span>
+        <span className="fuente-editorial italic text-[var(--ink-soft)]">
+          para {salida.asignada.para}
+          {salida.asignada.fecha_limite && ` · vence ${salida.asignada.fecha_limite}`}
         </span>
       </div>
     );

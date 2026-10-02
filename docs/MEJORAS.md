@@ -8,7 +8,7 @@ general está en [ARCHITECTURE.md](ARCHITECTURE.md).
 |---|---|---|
 | 1. Avisos inteligentes | No molestar · Aviso antes de cada evento · Rescate de tareas atrasadas · Limpieza semanal | Publicada |
 | 2. Comodidad | Botones de respuesta rápida · Tus tareas en Google Calendar | Publicada |
-| 3. Equipo y plata | Tareas en equipo · Gastos | Pendiente |
+| 3. Equipo y plata | Tareas en equipo · Gastos | Publicada |
 | 4. Memoria | Buscar en conversaciones anteriores · Preguntarle a tus documentos | Pendiente |
 | 5. Google Calendar | Crear y mover eventos | Pendiente |
 
@@ -160,3 +160,62 @@ ical.js, y traduce las repeticiones a reglas iCal (`RRULE`): laborables =
 
 `supabase-schema.sql`, bloque **Mejoras v8 (parte 2)**: la columna
 `ajustes.calendario_token`.
+
+---
+
+## Parte 3 · Equipo y plata
+
+### Tareas en equipo (P4)
+
+**Qué hace.** Le podés pasar una tarea a otra persona del equipo:
+*"asignale a Chris revisar el informe para el viernes"*.
+- A esa persona le llega un aviso (*"📋 vos@… te asignó: Revisar el
+  informe (vence el viernes 9 de octubre)"*) y la tarea le aparece en su
+  panel con la marca **de tu-nombre**.
+- Desde ahí es una tarea más suya: le llegan los avisos de vencimiento, el
+  rescate y demás, y puede tacharla desde el panel o desde el chat.
+- Cuando la completa, te llega a vos: *"✅ chris@… completó: Revisar el
+  informe"*.
+- *"¿Cómo van las tareas que asigné?"* muestra cuáles siguen pendientes.
+
+**Límites.** Solo entre personas del equipo que ya crearon su cuenta.
+Hasta 30 tareas asignadas por persona cada 24 horas.
+
+**Por dentro.**
+- Herramientas `companeros_de_equipo`, `asignar_tarea` y
+  `tareas_que_asigne` (`lib/tools.ts`).
+- La tarea la crea el servidor (service role) a nombre de quien la recibe
+  (`user_id`), con `asignada_por` y `asignada_por_email`. Así RLS y todos
+  los avisos funcionan igual que con una tarea propia.
+- Los dos avisos viajan como recordatorios inmediatos (`enviar_en = now()`):
+  el reloj de cada 10 segundos los entrega por notificación o correo. El de
+  "completó" lo crea el trigger `tareas_avisar_asignada` en la base, así
+  funciona aunque se tache desde el panel.
+
+### Gastos (P7)
+
+**Qué hace.** Contale a QIR lo que gastás y lo anota:
+*"gasté 20 mil en el almuerzo"*, *"pagué 120 mil de luz"*,
+*"ayer 8.500 de taxi"*. Después podés preguntar *"¿cuánto gasté este
+mes?"*, *"¿en qué gasto más?"*, *"¿cuánto gasté en comida en septiembre?"*.
+- Categorías: comida, transporte, hogar, servicios, salud, ocio, compras,
+  educación, trabajo, otros.
+- Moneda: la de tu país; se puede usar otra ("15 dólares de Netflix") y
+  los totales se separan por moneda.
+- El **resumen semanal** ahora suma los gastos de la semana.
+- Para corregir: *"borrá el gasto del taxi de ayer"*.
+
+**Privacidad.** Los gastos son privados de cada persona; nadie del equipo
+los ve.
+
+**Por dentro.** Tabla `gastos` con RLS. `lib/gastos.ts`:
+`resumirGastos()` (totales por moneda y por categoría, y el gasto mayor) y
+`formatearMonto()` (formato del país de cada moneda: `$ 8.500` en pesos
+colombianos). Herramientas `registrar_gasto`, `resumen_gastos`,
+`listar_gastos` y `borrar_gasto`.
+
+### Activación (Supabase)
+
+`supabase-schema.sql`, bloque **Mejoras v8 (parte 3)**: columnas
+`tareas.asignada_por` y `asignada_por_email`, el trigger
+`tareas_avisar_asignada` y la tabla `gastos`.
