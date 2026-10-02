@@ -10,7 +10,7 @@ general está en [ARCHITECTURE.md](ARCHITECTURE.md).
 | 2. Comodidad | Botones de respuesta rápida · Tus tareas en Google Calendar | Publicada |
 | 3. Equipo y plata | Tareas en equipo · Gastos | Publicada |
 | 4. Memoria | Buscar en conversaciones anteriores · Preguntarle a tus documentos | Publicada |
-| 5. Google Calendar | Crear y mover eventos | Pendiente |
+| 5. Google Calendar | Crear y mover eventos | Publicada (falta configurar Google Cloud) |
 
 ---
 
@@ -282,3 +282,75 @@ responde con lo que dice el documento y nombra la página.
 `supabase-schema.sql`, bloque **Mejoras v8 (parte 4)**: tablas
 `mensajes_archivo`, `documentos` y `documento_fragmentos`, las funciones
 de búsqueda y el paso del historial actual al archivo.
+
+---
+
+## Parte 5 · Crear y mover eventos en Google Calendar (P5)
+
+**Qué hace.** QIR escribe en tu Google Calendar:
+- *"Agendá reunión con el equipo el martes de 3 a 4"*
+- *"Pasá el dentista del jueves al viernes a la misma hora"*
+- *"Borrá la cena del sábado"* (se confirma con un botón)
+- *"Agendá una llamada con Ana mañana a las 10 e invitala"*: Google le
+  manda la invitación a Ana; como sale un correo a otra persona, se
+  aprueba con un botón.
+
+Antes de agendar mira si choca con algo. Con Google conectado,
+*"¿qué tengo esta semana?"* lee directo de Google, al instante (el enlace
+iCal de la parte de lectura tarda horas en actualizarse).
+
+**Cómo se conecta (cada persona, una vez).** Decile a QIR *"conectá mi
+Google Calendar"*. Te da un enlace: lo tocás, elegís tu cuenta, aceptás el
+permiso y volvés al chat. Mientras la app no esté verificada por Google,
+aparece *"Google no verificó esta app"*: se toca **Configuración avanzada**
+→ **Ir a elqir.com**.
+
+**Seguridad.**
+- QIR pide solo el permiso de **eventos** del calendario
+  (`calendar.events`): no ve tu Gmail, tu Drive ni el resto de tu cuenta.
+- El permiso queda **cifrado** (AES-256-GCM) en `google_cuentas`, una tabla
+  que solo lee el servidor.
+- El enlace de conexión lleva una firma que vence en 10 minutos y tiene
+  que coincidir con la sesión abierta: nadie puede conectar su Google en
+  la cuenta de otro.
+- *"Desconectá Google Calendar"* borra el permiso y le avisa a Google.
+
+**Por dentro.**
+- `lib/google.ts`: OAuth (`enlaceDeAutorizacion`, `guardarConexion`), el
+  cifrado, la renovación automática del permiso (`accesoVigente`, un
+  minuto antes de vencer) y la API de Calendar (listar, leer, crear,
+  modificar y borrar).
+- `/api/google/conectar` lleva a Google; `/api/google/callback` recibe la
+  respuesta y vuelve al chat con un mensaje ya escrito.
+- Herramientas: `conectar_google_calendar`, `crear_evento`,
+  `buscar_eventos`, `mover_evento` (mantiene la duración),
+  `borrar_evento` (con aprobación) y `desconectar_google_calendar`.
+  `ver_calendario` usa Google si está conectado y, si no, el enlace iCal.
+
+### Activación
+
+**1. Supabase:** `supabase-schema.sql`, bloque **Mejoras v8 (parte 5)**: la
+tabla `google_cuentas`.
+
+**2. Google Cloud** (una sola vez, con tu cuenta de Google):
+1. Entrá a **console.cloud.google.com** y creá un proyecto llamado **QIR**.
+2. **APIs y servicios → Biblioteca** → buscá **Google Calendar API** →
+   **Habilitar**.
+3. **Google Auth Platform** (o "Pantalla de consentimiento de OAuth"):
+   - **Información de la app:** nombre *QIR*, tu correo de asistencia.
+   - **Público:** *Externo*.
+   - **Dominios autorizados:** `elqir.com`. Página principal:
+     `https://elqir.com`.
+   - **Acceso a los datos (alcances):** agregá
+     `.../auth/calendar.events`, `openid` y `email`.
+   - **Público → Publicar la app** (pasarla a *En producción*). Si queda en
+     *Prueba*, Google corta el permiso a los 7 días. Sin verificación de
+     Google funciona para hasta 100 personas, con el aviso de "app no
+     verificada".
+4. **Credenciales → Crear credenciales → ID de cliente de OAuth**:
+   - Tipo: **Aplicación web**.
+   - **URI de redirección autorizados:** `https://elqir.com/api/google/callback`
+5. Copiá el **ID de cliente** y el **Secreto del cliente**.
+
+**3. Vercel:** **Settings → Environment Variables**: `GOOGLE_CLIENT_ID` y
+`GOOGLE_CLIENT_SECRET` con esos valores → **Redeploy**.

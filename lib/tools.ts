@@ -18,6 +18,18 @@ import { eventosEntre, probarCalendario, validarEnlace } from '@/lib/calendario'
 import { BUCKET_ADJUNTOS, MAX_BYTES_CORREO } from '@/lib/adjuntos';
 import type { Ajustes } from '@/lib/contexto';
 import { randomBytes } from 'node:crypto';
+import {
+  borrarEventoGoogle,
+  crearEventoGoogle,
+  desconectarGoogle,
+  googleConectado,
+  googleConfigurado,
+  leerEventoGoogle,
+  listarEventosGoogle,
+  modificarEventoGoogle,
+  momento,
+  type EventoGoogle,
+} from '@/lib/google';
 import { URL_APP } from '@/lib/marca';
 
 /** Tope de preferencias guardadas por persona. */
@@ -28,6 +40,26 @@ const MAX_APODOS = 10;
 
 /** Tope de tareas que una persona puede asignar a otras en 24 horas. */
 const LIMITE_ASIGNACIONES_DIARIO = 30;
+
+/** "2026-10-05T15:00" + 60 minutos, en la hora local de la zona. */
+function sumarMinutosLocal(fechaHora: string, minutos: number, zona: string): string | null {
+  const instante = horaLocalAUtc(fechaHora, zona);
+  if (!instante) return null;
+  const p = partesLocales(new Date(instante.getTime() + minutos * 60_000), zona);
+  return `${p.fecha}T${p.hora.slice(0, 5)}`;
+}
+
+/** Evento de Google para mostrarle al modelo, con las horas en la zona del usuario. */
+function eventoLegible(e: EventoGoogle, zona: string) {
+  return {
+    id: e.id,
+    titulo: e.titulo,
+    cuando: e.todo_el_dia ? `${e.inicio} (todo el día)` : formatearEnZona(new Date(e.inicio), zona),
+    hasta: e.todo_el_dia ? undefined : formatearEnZona(new Date(e.fin), zona),
+    lugar: e.lugar,
+    invitados: e.invitados,
+  };
+}
 
 /** Personas del equipo con cuenta creada: email -> id. */
 async function miembrosDelEquipo(): Promise<Map<string, string>> {
@@ -778,6 +810,17 @@ export function crearHerramientas(
         dias: z.number().int().min(1).max(31).optional().default(7).describe('Cuántos días mirar'),
       }),
       execute: async ({ desde, dias }) => {
+        // Con Google conectado se lee directo de la API: está al día al instante.
+        if (await googleConectado(userId)) {
+          const inicioG = horaLocalAUtc(`${desde ?? partesLocales(new Date(), zonaHoraria).fecha}T00:00`, zonaHoraria);
+          if (!inicioG) return { ok: false, error: 'La fecha "desde" debe ser YYYY-MM-DD.' };
+          try {
+            const eventos = await listarEventosGoogle(userId, inicioG, new Date(inicioG.getTime() + dias * 86_400_000));
+            return { ok: true, eventos: eventos.map((e) => eventoLegible(e, zonaHoraria)) };
+          } catch (e) {
+            return { ok: false, error: e instanceof Error ? e.message : String(e) };
+          }
+        }
         const supabase = await createClient();
         const { data } = await supabase
           .from('ajustes')
@@ -1048,6 +1091,148 @@ export function crearHerramientas(
         if (error) return { ok: false, error: error.message };
         if (!data?.length) return { ok: false, error: 'No existe ese gasto.' };
         return { ok: true, borrado: true };
+      },
+    }),
+
+    // ---- Google Calendar (escritura) ----
+
+    conectar_google_calendar: tool({
+      description:
+        'Da el enlace para conectar Google Calendar con permiso para crear, mover y borrar eventos. Usar cuando quiera que QIR agende en su calendario y todavía no lo conectó.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!googleConfigurado()) {
+          return { ok: false, error: 'Google Calendar todavía no está configurado en el servidor (falta la parte de Google Cloud).' };
+        }
+        const conectado = await googleConectado(userId);
+        return {
+          ok: true,
+          ya_conectado: conectado ? (conectado.email ?? true) : false,
+          enlace: `${URL_APP}/api/google/conectar`,
+        };
+      },
+    }),
+
+    crear_evento: tool({
+      description:
+        'Crea un evento en el Google Calendar del usuario (necesita conectar_google_calendar antes). Horas en la hora local del usuario. Si lleva invitados, Google les manda la invitación por correo y el usuario lo aprueba con un botón.',
+      inputSchema: z.object({
+        titulo: z.string().min(1).max(200),
+        inicio: z
+          .string()
+          .describe('YYYY-MM-DDTHH:mm para un evento con hora, o YYYY-MM-DD para uno de todo el día'),
+        fin: z.string().optional().describe('Mismo formato que inicio. Sin fin: dura duracion_minutos (o todo el día)'),
+        duracion_minutos: z.number().int().min(5).max(1440).optional().default(60),
+        lugar: z.string().max(200).optional(),
+        descripcion: z.string().max(2000).optional(),
+        invitados: z
+          .array(z.email())
+          .max(20)
+          .optional()
+          .describe('Emails de invitados que el usuario escribió o que están en sus contactos'),
+      }),
+      execute: async ({ titulo, inicio, fin, duracion_minutos, lugar, descripcion, invitados }) => {
+        const todoElDia = /^\d{4}-\d{2}-\d{2}$/.test(inicio);
+        let finReal = fin;
+        if (!finReal) {
+          finReal = todoElDia
+            ? new Date(Date.parse(inicio + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10)
+            : (sumarMinutosLocal(inicio, duracion_minutos, zonaHoraria) ?? undefined);
+        }
+        if (!finReal || (!todoElDia && !horaLocalAUtc(inicio, zonaHoraria))) {
+          return { ok: false, error: 'La fecha debe ser YYYY-MM-DDTHH:mm o YYYY-MM-DD.' };
+        }
+        try {
+          const e = await crearEventoGoogle(userId, {
+            titulo,
+            inicio: momento(inicio, zonaHoraria),
+            fin: momento(finReal, zonaHoraria),
+            lugar,
+            descripcion,
+            invitados,
+          });
+          return { ok: true, evento: { ...eventoLegible(e, zonaHoraria), enlace: e.enlace } };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    }),
+
+    buscar_eventos: tool({
+      description:
+        'Lista o busca eventos del Google Calendar conectado (con su id, para moverlos o borrarlos). Si no está conectado con permiso de escritura, usá ver_calendario.',
+      inputSchema: z.object({
+        desde: z.string().optional().describe('Primer día YYYY-MM-DD (por defecto, hoy)'),
+        dias: z.number().int().min(1).max(90).optional().default(7),
+        texto: z.string().max(100).optional().describe('Palabras del título, ej. "dentista"'),
+      }),
+      execute: async ({ desde, dias, texto }) => {
+        const inicio = horaLocalAUtc(`${desde ?? partesLocales(new Date(), zonaHoraria).fecha}T00:00`, zonaHoraria);
+        if (!inicio) return { ok: false, error: 'La fecha "desde" debe ser YYYY-MM-DD.' };
+        try {
+          const eventos = await listarEventosGoogle(userId, inicio, new Date(inicio.getTime() + dias * 86_400_000), texto);
+          return { ok: true, eventos: eventos.map((e) => eventoLegible(e, zonaHoraria)) };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    }),
+
+    mover_evento: tool({
+      description:
+        'Cambia un evento del Google Calendar: otra hora, otro día, otro título u otro lugar (primero buscar_eventos para el id). Si tiene invitados, Google les avisa del cambio.',
+      inputSchema: z.object({
+        id: z.string().describe('El id del evento'),
+        inicio: z.string().optional().describe('Nuevo inicio YYYY-MM-DDTHH:mm o YYYY-MM-DD'),
+        fin: z.string().optional().describe('Nuevo fin. Sin fin y con inicio nuevo, se mantiene la duración que tenía'),
+        titulo: z.string().max(200).optional(),
+        lugar: z.string().max(200).optional(),
+      }),
+      execute: async ({ id, inicio, fin, titulo, lugar }) => {
+        try {
+          let finReal = fin;
+          if (inicio && !fin && !/^\d{4}-\d{2}-\d{2}$/.test(inicio)) {
+            // Se mantiene la duración original: hace falta leer el evento.
+            const actual = await leerEventoGoogle(userId, id);
+            const duracion = actual.todo_el_dia ? 60 : (Date.parse(actual.fin) - Date.parse(actual.inicio)) / 60_000;
+            finReal = sumarMinutosLocal(inicio, duracion, zonaHoraria) ?? undefined;
+          }
+          const e = await modificarEventoGoogle(userId, id, {
+            titulo,
+            lugar,
+            inicio: inicio ? momento(inicio, zonaHoraria) : undefined,
+            fin: finReal ? momento(finReal, zonaHoraria) : undefined,
+          });
+          return { ok: true, evento: eventoLegible(e, zonaHoraria), movido: true };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    }),
+
+    borrar_evento: tool({
+      description:
+        'Borra un evento del Google Calendar (primero buscar_eventos para el id). El usuario lo confirma con un botón. Si tenía invitados, Google les avisa que se canceló.',
+      inputSchema: z.object({
+        id: z.string(),
+        titulo: z.string().describe('Título y fecha, para mostrarlos en la confirmación'),
+      }),
+      execute: async ({ id }) => {
+        try {
+          await borrarEventoGoogle(userId, id);
+          return { ok: true, evento_borrado: true };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    }),
+
+    desconectar_google_calendar: tool({
+      description: 'Quita el permiso de QIR sobre el Google Calendar del usuario.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        await desconectarGoogle(userId);
+        return { ok: true, desconectado: true };
       },
     }),
 

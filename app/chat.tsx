@@ -86,6 +86,12 @@ const NOMBRES_HERRAMIENTA: Record<string, string> = {
   buscar_en_documentos: 'buscando en tus documentos',
   leer_documento: 'leyendo el documento',
   borrar_documento: 'borrando el documento',
+  conectar_google_calendar: 'preparando la conexión con Google',
+  crear_evento: 'agendando en tu calendario',
+  buscar_eventos: 'revisando tu calendario',
+  mover_evento: 'moviendo el evento',
+  borrar_evento: 'borrando el evento',
+  desconectar_google_calendar: 'Google Calendar desconectado',
 };
 
 function adjuntosDe(mensaje: UIMessage): Adjunto[] {
@@ -209,6 +215,33 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
     }
   }
 
+  if (toolPart.type === 'tool-crear_evento' && pideAprobacion) {
+    const { titulo, inicio, invitados = [] } = toolPart.input ?? {};
+    return (
+      <Aprobacion pregunta="¿Agendo y mando la invitación?" confirmar="Agendar e invitar" toolPart={toolPart} responder={responder}>
+        <p className="font-medium">{titulo}</p>
+        <p className="text-[var(--ink-soft)]">{String(inicio ?? '').replace('T', ' ')}</p>
+        <p className="mt-1">
+          <span className="text-[var(--ink-soft)]">Google le manda la invitación a:</span> {invitados.join(', ')}
+        </p>
+      </Aprobacion>
+    );
+  }
+
+  if (toolPart.type === 'tool-borrar_evento') {
+    if (pideAprobacion) {
+      return (
+        <Aprobacion pregunta="¿Borro este evento de tu calendario?" confirmar="Borrar" toolPart={toolPart} responder={responder}>
+          <p className="font-medium">{toolPart.input?.titulo}</p>
+          <p className="text-[var(--ink-soft)]">Si tenía invitados, Google les avisa que se canceló.</p>
+        </Aprobacion>
+      );
+    }
+    if (toolPart.state === 'output-denied') {
+      return <div className="my-1 text-sm italic text-[var(--ink-soft)]">el evento sigue en tu calendario</div>;
+    }
+  }
+
   if (toolPart.type === 'tool-borrar_documento') {
     if (pideAprobacion) {
       return (
@@ -301,6 +334,19 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
         <span className="fuente-editorial italic text-[var(--ink-soft)]">
           {salida.recordatorio.cuando_local}
           {salida.recordatorio.se_repite && ` · ↻ ${salida.recordatorio.se_repite}`}
+        </span>
+      </div>
+    );
+  }
+
+  if (salida?.evento) {
+    return (
+      <div className={`${CHIP} bg-[var(--teal-soft)]`}>
+        <IconoReloj />
+        <span className="font-medium">{salida.evento.titulo}</span>
+        <span className="fuente-editorial italic text-[var(--ink-soft)]">
+          {salida.movido ? 'movido a ' : ''}
+          {salida.evento.cuando}
         </span>
       </div>
     );

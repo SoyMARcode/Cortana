@@ -674,4 +674,23 @@ as $$
    limit limite;
 $$;
 
+-- ============================================================
+-- Mejoras v8 (parte 5): crear y mover eventos en Google Calendar.
+-- ============================================================
+
+-- Conexión de cada persona con su Google Calendar. El refresh token va
+-- cifrado (AES-256-GCM, lib/google.ts): ni con acceso a la base se puede
+-- usar sin la clave del servidor. Sin políticas RLS: solo el servidor.
+create table if not exists google_cuentas (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  email text,
+  refresh_token_cifrado text not null,
+  access_token_cifrado text,
+  expira_en timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table google_cuentas enable row level security;
+
 notify pgrst, 'reload schema';

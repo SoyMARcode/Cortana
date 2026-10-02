@@ -138,6 +138,12 @@ export async function POST(req: Request) {
             },
       borrar_tarea: 'user-approval',
       borrar_documento: 'user-approval',
+      borrar_evento: 'user-approval',
+      // Con invitados, Google les manda un correo: se aprueba antes, como los correos.
+      crear_evento: (input) =>
+        input.invitados?.length
+          ? { type: 'user-approval', reason: 'Google les va a mandar la invitación a esas personas.' }
+          : 'not-applicable',
       olvidar_conversaciones: 'user-approval',
     },
     stopWhen: isStepCount(8),
