@@ -138,7 +138,7 @@ export async function nombrarLugar(latitud: number, longitud: number) {
   const res = await fetch(url, {
     signal: AbortSignal.timeout(8000),
     // Nominatim exige identificar la aplicación.
-    headers: { 'User-Agent': 'QIR-asistente/1.0 (https://cortana-ochre.vercel.app)' },
+    headers: { 'User-Agent': 'QIR-asistente/1.0 (https://elqir.com)' },
   });
   if (!res.ok) return null;
   const d = (await res.json()) as {

@@ -85,6 +85,24 @@ function plantilla(cuerpoHtml: string, pie: string): string {
 </html>`;
 }
 
+/** El cuerpo de la plantilla en texto plano: párrafos, saltos de línea, sin etiquetas. */
+function htmlATexto(html: string): string {
+  return html
+    .replace(/<img[^>]*>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|tr|h\d)>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .split('\n')
+    .map((linea) => linea.trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /**
  * IMPORTANTE: el SDK de Resend NO lanza excepciones cuando falla; devuelve
  * { data, error }. Por eso acá se revisa `error` explícitamente. Si no, un
@@ -103,6 +121,9 @@ async function enviar(params: {
       to: params.destinatario,
       subject: params.asunto,
       html: params.html,
+      // Versión en texto plano: los correos personales la traen y los
+      // boletines muchas veces no. Ayuda a que Gmail no los mande a Promociones.
+      text: htmlATexto(params.html),
       replyTo: params.responderA,
       attachments: [
         {
