@@ -7,7 +7,7 @@ general está en [ARCHITECTURE.md](ARCHITECTURE.md).
 | Parte | Funciones | Estado |
 |---|---|---|
 | 1. Avisos inteligentes | No molestar · Aviso antes de cada evento · Rescate de tareas atrasadas · Limpieza semanal | Publicada |
-| 2. Comodidad | Botones de respuesta rápida · Tus tareas en Google Calendar | Pendiente |
+| 2. Comodidad | Botones de respuesta rápida · Tus tareas en Google Calendar | Publicada |
 | 3. Equipo y plata | Tareas en equipo · Gastos | Pendiente |
 | 4. Memoria | Buscar en conversaciones anteriores · Preguntarle a tus documentos | Pendiente |
 | 5. Google Calendar | Crear y mover eventos | Pendiente |
@@ -103,3 +103,60 @@ abierta, `public/sw.js` la lleva a esa dirección. Columna
 | Limpieza | Domingos, 6:00 p. m. | `DIA_LIMPIEZA` / `HORA_LIMPIEZA` en `lib/rescate.ts` |
 | Antes de eventos | 30 min antes (se cambia desde el chat) | `ajustes.aviso_evento_minutos` |
 | No molestar | 10:00 p. m. a 7:00 a. m. (se cambia desde el chat) | `ajustes.no_molestar_*` |
+
+---
+
+## Parte 2 · Comodidad
+
+### Botones de respuesta rápida (M4)
+
+**Qué hace.** Cuando la respuesta obvia es corta (confirmar, elegir una
+opción, el siguiente paso), debajo del último mensaje de QIR aparecen
+hasta 3 botones, por ejemplo **Sí, a las 9** · **Sí, a las 8** ·
+**No hace falta**. Tocar uno es igual que escribirlo y enviarlo.
+
+**Cuándo no aparecen.** En respuestas abiertas, cuando ya no hay un
+siguiente paso, mientras QIR está escribiendo y cuando hay que aprobar algo
+con los botones de siempre (correo a otra persona, borrar una tarea).
+
+**Por dentro.** QIR termina el texto con una línea
+`[[opción 1 | opción 2 | opción 3]]` (lo indica `lib/personality.ts`).
+`lib/sugerencias.ts` la separa: `separarSugerencias()` saca las opciones
+(máximo 3, de hasta 40 caracteres) y `sinSugerencias()` la borra del texto
+que se muestra y del que se lee en voz alta, también mientras se está
+escribiendo. `RespuestasRapidas` en `app/chat.tsx` dibuja los botones solo
+en el último mensaje. Se eligió una marca en el texto y no una herramienta
+porque no agrega otro viaje al modelo.
+
+### Tus tareas en Google Calendar (M1)
+
+**Qué hace.** Tus tareas con fecha (como eventos de día completo, con ✅)
+y tus avisos programados (con ⏰, a su hora) aparecen dentro de Google
+Calendar, Apple o Outlook. Las repeticiones también: "todos los lunes"
+se ve todos los lunes. Es de solo lectura: se cambian desde QIR.
+
+**Cómo se usa.**
+1. Pedile a QIR: "quiero ver mis tareas en Google Calendar". Te da un
+   enlace privado.
+2. En la computadora, en calendar.google.com, a la izquierda, junto a
+   **Otros calendarios**, tocá **+** → **Desde URL**, pegá el enlace y tocá
+   **Agregar calendario**. En el celular aparece solo.
+3. Si compartiste el enlace por error: "haceme un enlace nuevo del
+   calendario". El anterior deja de funcionar.
+
+**Límite.** Google vuelve a leer el calendario cada varias horas (hasta
+24): una tarea nueva no aparece al instante. Apple y Outlook suelen ser
+más rápidos.
+
+**Por dentro.** Herramienta `enlace_calendario_tareas` (`lib/tools.ts`):
+crea un token al azar de 24 bytes en `ajustes.calendario_token` y devuelve
+`https://elqir.com/api/calendario/<token>`. Esa ruta
+(`app/api/calendario/[token]/route.ts`) no usa sesión: el token
+identifica a la persona. El archivo lo arma `lib/calendario-tareas.ts` con
+ical.js, y traduce las repeticiones a reglas iCal (`RRULE`): laborables =
+`FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR`.
+
+### Activación (Supabase)
+
+`supabase-schema.sql`, bloque **Mejoras v8 (parte 2)**: la columna
+`ajustes.calendario_token`.

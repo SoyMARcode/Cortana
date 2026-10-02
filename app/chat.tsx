@@ -33,6 +33,7 @@ import {
   Logo,
 } from './iconos';
 import { NOMBRE } from '@/lib/marca';
+import { separarSugerencias, sinSugerencias } from '@/lib/sugerencias';
 import {
   BUCKET_ADJUNTOS,
   MAX_ADJUNTOS,
@@ -70,6 +71,7 @@ const NOMBRES_HERRAMIENTA: Record<string, string> = {
   desconectar_calendario: 'calendario desconectado',
   web_search: 'buscando en internet',
   web_fetch: 'leyendo la página',
+  enlace_calendario_tareas: 'preparando tu calendario',
 };
 
 function adjuntosDe(mensaje: UIMessage): Adjunto[] {
@@ -299,6 +301,29 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
   return <div className="my-1 text-sm italic text-[var(--ink-soft)]">{nombre}...</div>;
 }
 
+/** Botones con las respuestas que QIR sugirió al final de su último mensaje. */
+function RespuestasRapidas({ mensaje, onElegir }: { mensaje: UIMessage; onElegir: (texto: string) => void }) {
+  const ultimoTexto = [...mensaje.parts].reverse().find((p) => p.type === 'text') as
+    | { text: string }
+    | undefined;
+  const { sugerencias } = separarSugerencias(ultimoTexto?.text ?? '');
+  if (!sugerencias.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {sugerencias.map((s) => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => onElegir(s)}
+          className="border border-[var(--rule)] bg-[var(--paper-note)] px-3 py-1.5 text-sm transition hover:border-[var(--ink)]"
+        >
+          {s}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Las páginas que QIR consultó en internet para esta respuesta. */
 function Fuentes({ mensaje }: { mensaje: UIMessage }) {
   const vistas = new Set<string>();
@@ -421,10 +446,12 @@ export default function Chat({
     if (ultimoLeidoRef.current === ultimo.id) return;
     if (status !== 'ready') return;
 
-    const texto = ultimo.parts
-      .filter((p) => p.type === 'text')
-      .map((p) => (p as any).text)
-      .join(' ');
+    const texto = sinSugerencias(
+      ultimo.parts
+        .filter((p) => p.type === 'text')
+        .map((p) => (p as any).text)
+        .join(' ')
+    );
 
     if (texto) {
       ultimoLeidoRef.current = ultimo.id;
@@ -786,7 +813,7 @@ export default function Chat({
                   <div className="border-l-2 border-[var(--rule)] pl-4 text-[15px] leading-relaxed">
                     {message.parts.map((part, i) => {
                       if (part.type === 'text') {
-                        return <span key={i}>{(part as any).text}</span>;
+                        return <span key={i}>{sinSugerencias((part as any).text)}</span>;
                       }
                       if (part.type.startsWith('tool-') || part.type === 'dynamic-tool') {
                         return <EtiquetaTarea key={i} toolPart={part} responder={addToolApprovalResponse} />;
@@ -794,6 +821,17 @@ export default function Chat({
                       return null;
                     })}
                     <Fuentes mensaje={message} />
+                    {message.id === messages[messages.length - 1]?.id &&
+                      status === 'ready' &&
+                      !esperandoAprobacion && (
+                        <RespuestasRapidas
+                          mensaje={message}
+                          onElegir={(texto) => {
+                            dictadoRef.current?.cancelar();
+                            mandar(texto);
+                          }}
+                        />
+                      )}
                   </div>
                 )}
               </div>

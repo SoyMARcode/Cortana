@@ -8,6 +8,8 @@ import { buscarLugar, pronostico } from '@/lib/clima';
 import { eventosEntre, probarCalendario, validarEnlace } from '@/lib/calendario';
 import { BUCKET_ADJUNTOS, MAX_BYTES_CORREO } from '@/lib/adjuntos';
 import type { Ajustes } from '@/lib/contexto';
+import { randomBytes } from 'node:crypto';
+import { URL_APP } from '@/lib/marca';
 
 /** Tope de preferencias guardadas por persona. */
 const MAX_PREFERENCIAS = 40;
@@ -774,6 +776,40 @@ export function crearHerramientas(
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : 'No se pudo leer el calendario.' };
         }
+      },
+    }),
+
+    enlace_calendario_tareas: tool({
+      description:
+        'Da el enlace secreto para ver las tareas y avisos de QIR dentro de Google Calendar, Apple o Outlook (suscripción de solo lectura). Con regenerar: true crea uno nuevo y el anterior deja de funcionar.',
+      inputSchema: z.object({
+        regenerar: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe('true solo si pide un enlace nuevo porque compartió el anterior o quiere cortarlo'),
+      }),
+      execute: async ({ regenerar }) => {
+        const supabase = await createClient();
+        const { data } = await supabase
+          .from('ajustes')
+          .select('calendario_token')
+          .eq('user_id', userId)
+          .maybeSingle();
+        let token = data?.calendario_token as string | null | undefined;
+        if (!token || regenerar) {
+          token = randomBytes(24).toString('base64url');
+          const { error } = await supabase
+            .from('ajustes')
+            .update({ calendario_token: token, updated_at: new Date().toISOString() })
+            .eq('user_id', userId);
+          if (error) return { ok: false, error: error.message };
+        }
+        return {
+          ok: true,
+          enlace: `${URL_APP}/api/calendario/${token}`,
+          nuevo: regenerar || !data?.calendario_token,
+        };
       },
     }),
 

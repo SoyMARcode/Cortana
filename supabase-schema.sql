@@ -483,4 +483,12 @@ create table if not exists eventos_avisados (
 
 alter table eventos_avisados enable row level security;
 
+-- ============================================================
+-- Mejoras v8 (parte 2): tus tareas en Google Calendar.
+-- ============================================================
+
+-- Token secreto de la dirección iCal con las tareas y avisos de la persona
+-- (app/api/calendario/[token]). Se crea la primera vez que lo pide.
+alter table ajustes add column if not exists calendario_token text unique;
+
 notify pgrst, 'reload schema';

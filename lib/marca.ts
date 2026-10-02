@@ -8,6 +8,9 @@ export const NOMBRE = 'QIR';
 /** Cómo lo dice la voz: "QIR" se leería letra por letra. */
 export const NOMBRE_HABLADO = 'Kir';
 
+/** Dirección pública de la app, para enlaces que salen de ella (ej. el calendario de tareas). */
+export const URL_APP = process.env.NEXT_PUBLIC_APP_URL || 'https://elqir.com';
+
 /**
  * Geometría del logo, redibujada a partir del original. Unidades: la altura
  * de las letras mide 55. La Q es un anillo cortado en diagonal por su cola;
