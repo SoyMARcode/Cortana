@@ -9,13 +9,39 @@ import {
 } from 'ai';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { hablar, detenerVoz, iniciarDictado, soportaDictado, type Dictado } from '@/lib/voice';
+import {
+  hablar,
+  desbloquearVoz,
+  detenerVoz,
+  iniciarDictado,
+  soportaDictado,
+  type Dictado,
+} from '@/lib/voice';
 import { cargarLibreta, type Libreta } from '@/lib/libreta';
 import { avisar, confirmar, notificar } from '@/lib/alertas';
 import PanelTareas from './panel-tareas';
 import AvisosDispositivo, { registrarServiceWorker } from './avisos-dispositivo';
-import { IconoMarcador, IconoMicrofono, IconoPersona, IconoReloj, IconoSobre, Logo } from './iconos';
+import UbicacionDispositivo from './ubicacion-dispositivo';
+import {
+  IconoClip,
+  IconoMarcador,
+  IconoMicrofono,
+  IconoNube,
+  IconoPersona,
+  IconoReloj,
+  IconoSobre,
+  Logo,
+} from './iconos';
 import { NOMBRE } from '@/lib/marca';
+import {
+  BUCKET_ADJUNTOS,
+  MAX_ADJUNTOS,
+  MAX_BYTES_ADJUNTO,
+  nombreSeguro,
+  tamanoLegible,
+  type Adjunto,
+  type MetadataMensaje,
+} from '@/lib/adjuntos';
 
 const NOMBRES_HERRAMIENTA: Record<string, string> = {
   crear_tarea: 'anotado',
@@ -34,7 +60,47 @@ const NOMBRES_HERRAMIENTA: Record<string, string> = {
   listar_equipo: 'revisando el equipo',
   quitar_invitacion: 'invitación quitada',
   enviar_correo: 'enviando el correo',
+  agregar_apodo: 'anotando el apodo',
+  consultar_clima: 'mirando el cielo',
+  recordar_preferencia: 'lo tengo en cuenta',
+  olvidar_preferencia: 'olvidado',
+  configurar_avisos: 'ajustando tus avisos',
+  conectar_calendario: 'conectando tu calendario',
+  ver_calendario: 'revisando tu calendario',
+  desconectar_calendario: 'calendario desconectado',
+  web_search: 'buscando en internet',
+  web_fetch: 'leyendo la página',
 };
+
+function adjuntosDe(mensaje: UIMessage): Adjunto[] {
+  return (mensaje.metadata as MetadataMensaje | undefined)?.adjuntos ?? [];
+}
+
+function ChipAdjunto({
+  adjunto,
+  onQuitar,
+}: {
+  adjunto: Pick<Adjunto, 'nombre' | 'tamano'>;
+  onQuitar?: () => void;
+}) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 border border-[var(--rule)] bg-[var(--paper)] px-2 py-0.5 text-[13px]">
+      <IconoClip className="h-3.5 w-3.5 shrink-0 text-[var(--ink-soft)]" />
+      <span className="truncate">{adjunto.nombre}</span>
+      <span className="shrink-0 text-[var(--ink-soft)]">{tamanoLegible(adjunto.tamano)}</span>
+      {onQuitar && (
+        <button
+          type="button"
+          onClick={onQuitar}
+          aria-label={`Quitar ${adjunto.nombre}`}
+          className="px-0.5 leading-none text-[var(--ink-soft)] hover:text-[var(--ink)]"
+        >
+          ×
+        </button>
+      )}
+    </span>
+  );
+}
 
 function fechaDeHoy() {
   return new Intl.DateTimeFormat('es-AR', {
@@ -101,7 +167,7 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
 
   if (toolPart.type === 'tool-enviar_correo') {
     if (pideAprobacion) {
-      const { destinatarios = [], asunto, contenido } = toolPart.input ?? {};
+      const { destinatarios = [], asunto, contenido, adjuntos = [] } = toolPart.input ?? {};
       return (
         <Aprobacion pregunta="¿Envío este correo?" confirmar="Enviar" toolPart={toolPart} responder={responder}>
           <p>
@@ -113,6 +179,12 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
           <p className="max-h-40 overflow-y-auto whitespace-pre-wrap border-l-2 border-[var(--rule)] pl-3 text-[var(--ink-soft)]">
             {contenido}
           </p>
+          {adjuntos.length > 0 && (
+            <p className="mt-2">
+              <span className="text-[var(--ink-soft)]">Adjuntos:</span>{' '}
+              {adjuntos.map((a: { nombre: string }) => a.nombre).join(', ')}
+            </p>
+          )}
         </Aprobacion>
       );
     }
@@ -147,7 +219,11 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
       <div className="flex flex-col items-start gap-1">
         <div className={`${CHIP} bg-[var(--teal-soft)]`}>
           <IconoSobre />
-          <span>Correo enviado a {[].concat(salida.enviado_a).join(', ')}</span>
+          <span>
+            Correo enviado a {[].concat(salida.enviado_a).join(', ')}
+            {salida.adjuntos?.length > 0 &&
+              ` · ${salida.adjuntos.length} adjunto${salida.adjuntos.length > 1 ? 's' : ''}`}
+          </span>
         </div>
         {salida.fallidos?.length > 0 && (
           <div className="border border-[var(--amber)] bg-[var(--amber-soft)] px-3 py-1.5 text-sm">
@@ -173,6 +249,24 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
         <span className="font-medium">{salida.recordatorio.mensaje}</span>
         <span className="fuente-editorial italic text-[var(--ink-soft)]">
           {salida.recordatorio.cuando_local}
+          {salida.recordatorio.se_repite && ` · ↻ ${salida.recordatorio.se_repite}`}
+        </span>
+      </div>
+    );
+  }
+
+  if (salida?.clima) {
+    const { lugar, ahora, dias } = salida.clima;
+    const hoy = dias?.[0];
+    return (
+      <div className={`${CHIP} bg-[var(--paper-note)]`}>
+        <IconoNube />
+        <span className="font-medium">
+          {ahora.temperatura}° {ahora.descripcion}
+        </span>
+        <span className="fuente-editorial italic text-[var(--ink-soft)]">
+          {lugar}
+          {hoy?.llevar_paraguas && ` · lluvia ${hoy.prob_lluvia}%`}
         </span>
       </div>
     );
@@ -203,6 +297,44 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
   }
 
   return <div className="my-1 text-sm italic text-[var(--ink-soft)]">{nombre}...</div>;
+}
+
+/** Las páginas que QIR consultó en internet para esta respuesta. */
+function Fuentes({ mensaje }: { mensaje: UIMessage }) {
+  const vistas = new Set<string>();
+  const fuentes: { url: string; title?: string }[] = [];
+  for (const p of mensaje.parts) {
+    if (p.type === 'source-url' && !vistas.has(p.url)) {
+      vistas.add(p.url);
+      fuentes.push(p);
+    }
+  }
+  if (!fuentes.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-[var(--ink-soft)]">
+      <span>Fuentes:</span>
+      {fuentes.slice(0, 6).map((f) => {
+        let sitio = f.url;
+        try {
+          sitio = new URL(f.url).hostname.replace(/^www\./, '');
+        } catch {
+          // URL rara: se muestra entera.
+        }
+        return (
+          <a
+            key={f.url}
+            href={f.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={f.title ?? f.url}
+            className="underline decoration-[var(--rule)] underline-offset-4 hover:text-[var(--ink)]"
+          >
+            {sitio}
+          </a>
+        );
+      })}
+    </div>
+  );
 }
 
 const ENLACE =
@@ -244,6 +376,9 @@ export default function Chat({
     },
   });
   const [input, setInput] = useState('');
+  const [adjuntos, setAdjuntos] = useState<Adjunto[]>([]);
+  const [subiendo, setSubiendo] = useState(false);
+  const archivoRef = useRef<HTMLInputElement>(null);
   const [vozActivada, setVozActivada] = useState(true);
   const [escuchando, setEscuchando] = useState(false);
   // El historial cargado ya fue leído: no se vuelve a decir en voz alta al abrir.
@@ -325,14 +460,67 @@ export default function Chat({
     }
   }
 
+  async function adjuntar(e: React.ChangeEvent<HTMLInputElement>) {
+    const elegidos = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (!elegidos.length) return;
+    if (adjuntos.length + elegidos.length > MAX_ADJUNTOS) {
+      avisar('Demasiados archivos', `Podés adjuntar hasta ${MAX_ADJUNTOS} por mensaje.`);
+      return;
+    }
+    const grandes = elegidos.filter((f) => f.size > MAX_BYTES_ADJUNTO);
+    if (grandes.length) {
+      avisar(
+        'Archivo demasiado grande',
+        `${grandes.map((f) => f.name).join(', ')} pasa de ${tamanoLegible(MAX_BYTES_ADJUNTO)}.`
+      );
+      return;
+    }
+
+    setSubiendo(true);
+    try {
+      const { data } = await supabase.auth.getUser();
+      const userId = data.user?.id;
+      if (!userId) throw new Error('Tu sesión expiró. Volvé a entrar.');
+      const subidos = await Promise.all(
+        elegidos.map(async (f) => {
+          // Carpeta = id del usuario: es lo que exige la política de Storage.
+          const ruta = `${userId}/${crypto.randomUUID().slice(0, 8)}-${nombreSeguro(f.name)}`;
+          const tipo = f.type || 'application/octet-stream';
+          const { error } = await supabase.storage
+            .from(BUCKET_ADJUNTOS)
+            .upload(ruta, f, { contentType: tipo });
+          if (error) throw new Error(`${f.name}: ${error.message}`);
+          return { nombre: f.name, ruta, tipo, tamano: f.size };
+        })
+      );
+      setAdjuntos((a) => [...a, ...subidos]);
+    } catch (err) {
+      avisar('No se pudo adjuntar', err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubiendo(false);
+    }
+  }
+
+  function quitarAdjunto(ruta: string) {
+    setAdjuntos((a) => a.filter((x) => x.ruta !== ruta));
+    supabase.storage.from(BUCKET_ADJUNTOS).remove([ruta]);
+  }
+
   function enviar(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim() || esperandoAprobacion) return;
+    if ((!input.trim() && !adjuntos.length) || esperandoAprobacion || subiendo) return;
     // Si se envía mientras dicta, lo que falte reconocer ya no debe pisar el campo vacío.
     dictadoRef.current?.cancelar();
     clearError();
-    sendMessage({ text: input });
+    // Este toque es lo que habilita que la respuesta se escuche (iPhone/Chrome).
+    if (vozActivada) desbloquearVoz();
+    sendMessage({
+      text: input.trim() || 'Te adjunto esto.',
+      metadata: adjuntos.length ? { adjuntos } : undefined,
+    });
     setInput('');
+    setAdjuntos([]);
   }
 
   function alternarMicrofono() {
@@ -375,7 +563,20 @@ export default function Chat({
     if (!seguro) return;
     detenerVoz();
     const { data } = await supabase.auth.getUser();
-    if (data.user) await supabase.from('conversaciones').delete().eq('user_id', data.user.id);
+    const userId = data.user?.id;
+    if (userId) {
+      await supabase.from('conversaciones').delete().eq('user_id', userId);
+      // Los archivos adjuntos se van con la conversación.
+      const { data: archivos } = await supabase.storage
+        .from(BUCKET_ADJUNTOS)
+        .list(userId, { limit: 1000 });
+      if (archivos?.length) {
+        await supabase.storage
+          .from(BUCKET_ADJUNTOS)
+          .remove(archivos.map((a) => `${userId}/${a.name}`));
+      }
+    }
+    setAdjuntos([]);
     setMessages([]);
     ultimoLeidoRef.current = null;
     setHojaAbierta(false);
@@ -399,7 +600,14 @@ export default function Chat({
           nueva conversación
         </button>
       )}
-      <button onClick={() => setVozActivada((v) => !v)} className={ENLACE}>
+      <button
+        onClick={() => {
+          if (vozActivada) detenerVoz();
+          else desbloquearVoz();
+          setVozActivada((v) => !v);
+        }}
+        className={ENLACE}
+      >
         {vozActivada ? 'silenciar voz' : 'activar voz'}
       </button>
       <button onClick={cerrarSesion} className={ENLACE}>
@@ -443,6 +651,7 @@ export default function Chat({
         <div className="flex flex-col gap-5">
           <PanelTareas libreta={libreta} onAlternar={alternarTarea} onCancelarAviso={cancelarAviso} />
           <AvisosDispositivo />
+          <UbicacionDispositivo inicial={libretaInicial.ubicacion} />
         </div>
       </aside>
 
@@ -464,6 +673,13 @@ export default function Chat({
                       {message.parts.map((part, i) =>
                         part.type === 'text' ? <span key={i}>{part.text}</span> : null
                       )}
+                      {adjuntosDe(message).length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {adjuntosDe(message).map((a) => (
+                            <ChipAdjunto key={a.ruta} adjunto={a} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -477,6 +693,7 @@ export default function Chat({
                       }
                       return null;
                     })}
+                    <Fuentes mensaje={message} />
                   </div>
                 )}
               </div>
@@ -507,7 +724,26 @@ export default function Chat({
           onSubmit={enviar}
           className="border-t border-[var(--paper-line)] px-3 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-10 md:py-3.5"
         >
+          {(adjuntos.length > 0 || subiendo) && (
+            <div className="mx-auto mb-2 flex max-w-[700px] flex-wrap gap-1.5">
+              {adjuntos.map((a) => (
+                <ChipAdjunto key={a.ruta} adjunto={a} onQuitar={() => quitarAdjunto(a.ruta)} />
+              ))}
+              {subiendo && <span className="text-[13px] italic text-[var(--ink-soft)]">subiendo...</span>}
+            </div>
+          )}
           <div className="mx-auto flex max-w-[700px] items-center gap-3">
+            <input ref={archivoRef} type="file" multiple hidden onChange={adjuntar} />
+            <button
+              type="button"
+              onClick={() => archivoRef.current?.click()}
+              disabled={subiendo || esperandoAprobacion}
+              aria-label="Adjuntar archivos"
+              title="Adjuntar archivos o imágenes"
+              className="grid h-11 w-11 shrink-0 place-items-center border border-[var(--paper-line)] transition hover:border-[var(--rule)] disabled:opacity-40 md:h-10 md:w-10"
+            >
+              <IconoClip />
+            </button>
             <button
               type="button"
               onClick={alternarMicrofono}
@@ -536,7 +772,7 @@ export default function Chat({
             />
             <button
               type="submit"
-              disabled={status !== 'ready' || esperandoAprobacion}
+              disabled={status !== 'ready' || esperandoAprobacion || subiendo}
               className="border border-[var(--ink)] px-4 py-2 text-sm font-medium transition hover:bg-[var(--ink)] hover:text-[var(--paper)] disabled:opacity-40"
             >
               Enviar
@@ -561,6 +797,7 @@ export default function Chat({
             />
             <PanelTareas libreta={libreta} onAlternar={alternarTarea} onCancelarAviso={cancelarAviso} grande />
             <AvisosDispositivo />
+            <UbicacionDispositivo inicial={libretaInicial.ubicacion} />
             <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-[var(--paper-line)] pt-3.5 text-sm text-[var(--ink-soft)]">
               {acciones}
             </div>

@@ -57,6 +57,18 @@ export const IconoReloj = (p: Props) => (
   </Svg>
 );
 
+export const IconoClip = (p: Props) => (
+  <Svg {...p}>
+    <path d="M13 7.5l-5.2 5.2a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.3 11.2a1 1 0 0 1-1.5-1.5L9.8 4.7" />
+  </Svg>
+);
+
+export const IconoNube = (p: Props) => (
+  <Svg {...p}>
+    <path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.6 1A2.5 2.5 0 0 0 4.5 12.5z" />
+  </Svg>
+);
+
 export const IconoCheck = (p: Props) => (
   <Svg {...p}>
     <path d="M3 8.5l3 3 7-7" />

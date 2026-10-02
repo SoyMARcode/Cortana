@@ -16,6 +16,9 @@ const LINEA = '#DCDFE5';
 const SERIF = "Georgia, 'Times New Roman', serif";
 const SANS = "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif";
 
+/** Archivo que viaja adjunto en un correo. */
+export type Adjunto = { nombre: string; contenido: Buffer; tipo?: string };
+
 export type ResultadoEnvio =
   | { ok: true; id: string }
   | { ok: false; error: string };
@@ -92,6 +95,7 @@ async function enviar(params: {
   asunto: string;
   html: string;
   responderA?: string;
+  adjuntos?: Adjunto[];
 }): Promise<ResultadoEnvio> {
   try {
     const { data, error } = await resend.emails.send({
@@ -107,6 +111,11 @@ async function enviar(params: {
           contentType: 'image/png',
           contentId: LOGO_CID,
         },
+        ...(params.adjuntos ?? []).map((a) => ({
+          content: a.contenido,
+          filename: a.nombre,
+          contentType: a.tipo,
+        })),
       ],
     });
 
@@ -182,6 +191,7 @@ export function enviarCorreoLibre(params: {
   asunto: string;
   contenido: string;
   remitenteHumano: string;
+  adjuntos?: Adjunto[];
 }): Promise<ResultadoEnvio> {
   const esParaSiMismo =
     params.destinatario.toLowerCase() === params.remitenteHumano.toLowerCase();
@@ -194,5 +204,21 @@ export function enviarCorreoLibre(params: {
     asunto: params.asunto,
     responderA: esParaSiMismo ? undefined : params.remitenteHumano,
     html: plantilla(textoAHtml(params.contenido), pie),
+    adjuntos: params.adjuntos,
+  });
+}
+
+/** Resumen semanal automático (ver lib/resumen.ts). */
+export function enviarResumenSemanal(params: {
+  destinatario: string;
+  contenido: string;
+}): Promise<ResultadoEnvio> {
+  return enviar({
+    destinatario: params.destinatario,
+    asunto: `Tu semana con ${NOMBRE}`,
+    html: plantilla(
+      textoAHtml(params.contenido),
+      `Resumen automático de ${NOMBRE}. Para cambiar el día o dejar de recibirlo, pedíselo en el chat.`
+    ),
   });
 }

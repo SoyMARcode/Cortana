@@ -293,4 +293,150 @@ $$;
 revoke execute on function public.registrar_mensaje_chat(integer) from public, anon;
 grant execute on function public.registrar_mensaje_chat(integer) to authenticated;
 
+-- ============================================================
+-- Mejoras v6: repeticiones, ajustes, preferencias, apodos,
+-- calendario y adjuntos.
+-- ============================================================
+
+-- Repeticiones: 'diaria', 'laborables' (lun a vie), 'semanal', 'mensual'.
+-- dias_semana (0 = domingo ... 6 = sábado) solo se usa con 'semanal',
+-- para "todos los lunes y jueves". Sin días, se repite cada 7 días.
+alter table recordatorios add column if not exists repeticion text
+  check (repeticion in ('diaria', 'laborables', 'semanal', 'mensual'));
+alter table recordatorios add column if not exists dias_semana smallint[];
+alter table tareas add column if not exists repeticion text
+  check (repeticion in ('diaria', 'laborables', 'semanal', 'mensual'));
+alter table tareas add column if not exists dias_semana smallint[];
+
+-- La próxima fecha de una repetición. La misma lógica está en
+-- lib/repeticion.ts (para los recordatorios, que tienen hora y zona).
+create or replace function public.siguiente_fecha(fecha date, repeticion text, dias smallint[])
+returns date
+language plpgsql
+immutable
+as $$
+declare
+  d date := fecha + 1;
+begin
+  if repeticion = 'diaria' then
+    return fecha + 1;
+  elsif repeticion = 'mensual' then
+    return (fecha + interval '1 month')::date;
+  elsif repeticion = 'laborables' then
+    while extract(dow from d) in (0, 6) loop d := d + 1; end loop;
+    return d;
+  elsif repeticion = 'semanal' then
+    if dias is null or cardinality(dias) = 0 then return fecha + 7; end if;
+    while not (extract(dow from d)::smallint = any (dias)) loop d := d + 1; end loop;
+    return d;
+  end if;
+  return null;
+end;
+$$;
+
+-- Al completar una tarea que se repite, aparece la siguiente. Sirve igual
+-- si se tacha desde el panel o desde el chat.
+create or replace function public.crear_siguiente_tarea()
+returns trigger
+language plpgsql
+as $$
+declare
+  proxima date;
+begin
+  if new.completada and not old.completada
+     and new.repeticion is not null and new.fecha_limite is not null then
+    proxima := public.siguiente_fecha(new.fecha_limite, new.repeticion, new.dias_semana);
+    -- Si la destachan y la vuelven a tachar, no se duplica la siguiente.
+    if not exists (
+      select 1 from public.tareas
+       where user_id = new.user_id and titulo = new.titulo
+         and fecha_limite = proxima and not completada
+    ) then
+      insert into public.tareas (user_id, titulo, descripcion, fecha_limite, repeticion, dias_semana)
+      values (new.user_id, new.titulo, new.descripcion, proxima, new.repeticion, new.dias_semana);
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists tareas_repetir on tareas;
+create trigger tareas_repetir
+  after update of completada on tareas
+  for each row execute function public.crear_siguiente_tarea();
+
+-- Ajustes por persona: zona horaria, ubicación aproximada, resumen semanal,
+-- aviso de lluvia y calendario. Una fila por usuario; se crea sola al chatear.
+create table if not exists ajustes (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  zona_horaria text not null default 'UTC',
+  -- Ubicación redondeada a ~1 km. Nunca se guarda la exacta.
+  latitud double precision,
+  longitud double precision,
+  lugar text,
+  ciudad text,
+  region text,
+  pais text,
+  ubicacion_actualizada timestamptz,
+  resumen_semanal boolean not null default true,
+  resumen_dia smallint not null default 1 check (resumen_dia between 0 and 6),
+  resumen_hora smallint not null default 8 check (resumen_hora between 0 and 23),
+  ultimo_resumen date,
+  aviso_lluvia boolean not null default true,
+  ultimo_aviso_lluvia date,
+  -- Dirección secreta iCal (Google, Outlook, Apple). Solo lectura.
+  calendario_ics text,
+  updated_at timestamptz not null default now()
+);
+
+alter table ajustes enable row level security;
+
+drop policy if exists "usuarios gestionan sus ajustes" on ajustes;
+create policy "usuarios gestionan sus ajustes"
+  on ajustes for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Cosas que QIR recuerda de cada persona ("prefiere que le hable de usted").
+create table if not exists preferencias (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  texto text not null check (char_length(texto) <= 300),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists preferencias_user_idx on preferencias(user_id);
+
+alter table preferencias enable row level security;
+
+drop policy if exists "usuarios gestionan sus preferencias" on preferencias;
+create policy "usuarios gestionan sus preferencias"
+  on preferencias for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Apodos de cada contacto: "Anita", "mi hermana", "la jefa".
+alter table contactos add column if not exists apodos text[] not null default '{}';
+
+-- Archivos que se adjuntan en el chat para mandarlos por correo.
+-- Cada persona solo ve su carpeta: adjuntos/<su id>/...
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('adjuntos', 'adjuntos', false, 10485760)
+on conflict (id) do update set file_size_limit = excluded.file_size_limit;
+
+drop policy if exists "usuarios suben sus adjuntos" on storage.objects;
+create policy "usuarios suben sus adjuntos"
+  on storage.objects for insert to authenticated
+  with check (bucket_id = 'adjuntos' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "usuarios ven sus adjuntos" on storage.objects;
+create policy "usuarios ven sus adjuntos"
+  on storage.objects for select to authenticated
+  using (bucket_id = 'adjuntos' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "usuarios borran sus adjuntos" on storage.objects;
+create policy "usuarios borran sus adjuntos"
+  on storage.objects for delete to authenticated
+  using (bucket_id = 'adjuntos' and (storage.foldername(name))[1] = auth.uid()::text);
+
 notify pgrst, 'reload schema';

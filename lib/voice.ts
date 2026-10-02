@@ -15,6 +15,20 @@ import { NOMBRE, NOMBRE_HABLADO } from '@/lib/marca';
 
 let vocesCache: SpeechSynthesisVoice[] = [];
 
+/** Si el navegador no avisa que cargó las voces, se habla igual con la de por defecto. */
+const ESPERA_VOCES_MS = 1500;
+
+/** Chrome corta las lecturas largas a los ~15 s: se lee de a frases cortas. */
+const MAX_CARACTERES_TROZO = 180;
+
+/**
+ * Las frases que se están leyendo. Chrome a veces descarta (garbage
+ * collection) una lectura en curso si nadie la referencia, y se corta.
+ */
+let enCurso: SpeechSynthesisUtterance[] = [];
+
+let desbloqueada = false;
+
 function cargarVoces(): Promise<SpeechSynthesisVoice[]> {
   return new Promise((resolve) => {
     const voces = window.speechSynthesis.getVoices();
@@ -23,11 +37,71 @@ function cargarVoces(): Promise<SpeechSynthesisVoice[]> {
       resolve(voces);
       return;
     }
-    window.speechSynthesis.onvoiceschanged = () => {
-      vocesCache = window.speechSynthesis.getVoices();
-      resolve(vocesCache);
-    };
+    // Safari a veces nunca dispara voiceschanged: sin este tope, QIR se
+    // quedaba esperando para siempre y no decía nada.
+    const tope = setTimeout(() => resolve(window.speechSynthesis.getVoices()), ESPERA_VOCES_MS);
+    window.speechSynthesis.addEventListener(
+      'voiceschanged',
+      () => {
+        clearTimeout(tope);
+        vocesCache = window.speechSynthesis.getVoices();
+        resolve(vocesCache);
+      },
+      { once: true }
+    );
   });
+}
+
+/**
+ * iPhone (y algunos Chrome) solo dejan hablar si la primera lectura empieza
+ * con un toque del usuario. La respuesta de QIR llega segundos después del
+ * toque, así que se "abre" la voz en el momento del toque con una frase
+ * muda. Llamarla en los botones que mandan mensajes o activan la voz.
+ */
+export function desbloquearVoz() {
+  if (desbloqueada || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  const muda = new SpeechSynthesisUtterance(' ');
+  muda.volume = 0;
+  window.speechSynthesis.speak(muda);
+  desbloqueada = true;
+  // De paso empieza a cargar las voces, así la primera respuesta no espera.
+  cargarVoces();
+}
+
+/** Saca lo que no tiene sentido leer en voz alta: enlaces, asteriscos, numerales. */
+function textoParaLeer(texto: string): string {
+  return texto
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[*_#`>]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Parte el texto en frases de hasta MAX_CARACTERES_TROZO, sin cortar palabras. */
+function enTrozos(texto: string): string[] {
+  const frases = texto.match(/[^.!?;\n]+[.!?;]*\s*/g) ?? [texto];
+  const trozos: string[] = [];
+  let actual = '';
+  for (const frase of frases) {
+    if ((actual + frase).length > MAX_CARACTERES_TROZO && actual) {
+      trozos.push(actual.trim());
+      actual = '';
+    }
+    // Una sola frase muy larga se parte por palabras.
+    if (frase.length > MAX_CARACTERES_TROZO) {
+      for (const palabra of frase.split(' ')) {
+        if ((actual + ' ' + palabra).length > MAX_CARACTERES_TROZO && actual) {
+          trozos.push(actual.trim());
+          actual = '';
+        }
+        actual += (actual ? ' ' : '') + palabra;
+      }
+    } else {
+      actual += frase;
+    }
+  }
+  if (actual.trim()) trozos.push(actual.trim());
+  return trozos;
 }
 
 function elegirVozEnEspanol(voces: SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
@@ -41,19 +115,35 @@ function elegirVozEnEspanol(voces: SpeechSynthesisVoice[]): SpeechSynthesisVoice
 export async function hablar(texto: string) {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
+  const synth = window.speechSynthesis;
   // Corta cualquier lectura anterior antes de empezar una nueva
-  window.speechSynthesis.cancel();
+  synth.cancel();
 
   const voces = vocesCache.length > 0 ? vocesCache : await cargarVoces();
-  // En pantalla dice "QIR"; en voz alta, "Kir" (si no, lo deletrea).
-  const hablado = texto.replace(new RegExp(`\\b${NOMBRE}\\b`, 'g'), NOMBRE_HABLADO);
-  const utterance = new SpeechSynthesisUtterance(hablado);
   const voz = elegirVozEnEspanol(voces);
-  if (voz) utterance.voice = voz;
-  utterance.lang = voz?.lang || 'es-ES';
-  utterance.rate = 1;
+  // En pantalla dice "QIR"; en voz alta, "Kir" (si no, lo deletrea).
+  const hablado = textoParaLeer(texto).replace(new RegExp(`\\b${NOMBRE}\\b`, 'g'), NOMBRE_HABLADO);
+  if (!hablado) return;
 
-  window.speechSynthesis.speak(utterance);
+  enCurso = enTrozos(hablado).map((trozo) => {
+    const u = new SpeechSynthesisUtterance(trozo);
+    if (voz) u.voice = voz;
+    u.lang = voz?.lang || 'es-ES';
+    u.rate = 1;
+    u.onerror = (e) => {
+      // "interrupted"/"canceled" son normales: se cortó para leer otra cosa.
+      if (e.error !== 'interrupted' && e.error !== 'canceled') {
+        console.warn('[voz] No se pudo leer en voz alta:', e.error);
+      }
+    };
+    return u;
+  });
+
+  // Chrome pierde lo que se encola justo después de cancel(): se espera un instante.
+  await new Promise((r) => setTimeout(r, 60));
+  // Si quedó en pausa (pasa en Chrome al volver de otra pestaña), se reanuda.
+  synth.resume();
+  for (const u of enCurso) synth.speak(u);
 }
 
 export function detenerVoz() {

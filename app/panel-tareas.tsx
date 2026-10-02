@@ -3,6 +3,7 @@
 import { agruparTareas, textoAviso, textoPlazo, type Libreta } from '@/lib/libreta';
 import { IconoReloj } from './iconos';
 import { NOMBRE } from '@/lib/marca';
+import { textoRepeticion } from '@/lib/repeticion';
 
 /**
  * Pendientes agrupados por cuándo vencen + contactos. Se usa en la columna
@@ -61,7 +62,17 @@ export default function PanelTareas({
                 aria-label={`Marcar "${t.titulo}" como ${t.completada ? 'pendiente' : 'hecha'}`}
                 className={`casillero mt-px ${grande ? 'h-5 w-5' : 'h-4 w-4'}`}
               />
-              <span className={t.completada ? 'text-[var(--ink-soft)] line-through' : ''}>{t.titulo}</span>
+              <span className={t.completada ? 'text-[var(--ink-soft)] line-through' : ''}>
+                {t.titulo}
+                {t.repeticion && (
+                  <span
+                    title={`Se repite ${textoRepeticion(t.repeticion, t.dias_semana)}`}
+                    className="ml-1.5 text-[var(--ink-soft)]"
+                  >
+                    ↻
+                  </span>
+                )}
+              </span>
               <span
                 className={`whitespace-nowrap tabular-nums ${
                   grupo.urgente
@@ -94,6 +105,7 @@ export default function PanelTareas({
                 {r.mensaje}
                 <span className="fuente-editorial block text-[13px] italic tabular-nums text-[var(--ink-soft)]">
                   {textoAviso(r.enviar_en)}
+                  {r.repeticion && ` · ↻ ${textoRepeticion(r.repeticion, r.dias_semana)}`}
                 </span>
               </span>
               <button
@@ -116,7 +128,7 @@ export default function PanelTareas({
           </h3>
           {libreta.contactos.map((c) => (
             <div key={c.nombre} className="flex justify-between gap-2">
-              <span>{c.nombre}</span>
+              <span title={c.apodos?.length ? `También: ${c.apodos.join(', ')}` : undefined}>{c.nombre}</span>
               <span className="truncate text-[var(--ink-soft)]">{c.email}</span>
             </div>
           ))}

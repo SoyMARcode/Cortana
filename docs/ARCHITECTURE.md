@@ -132,3 +132,41 @@ mandan los últimos 40 mensajes. "nueva conversación" borra el historial.
   mensajes que escribe la persona, no las continuaciones tras aprobar.
 - **Prompt caching de Anthropic:** puntos de caché después de la
   personalidad (herramientas + instrucciones) y al final del historial.
+
+## Mejoras v6 (octubre 2026)
+Requieren correr de nuevo `supabase-schema.sql` y `supabase-cron.sql`
+ANTES de publicar: sin las columnas nuevas, el panel no carga las tareas.
+
+- **Contexto por persona** (`lib/contexto.ts`): en cada mensaje se arma un
+  segundo bloque de instrucciones con preferencias, contactos (con apodos),
+  ubicación y ajustes. La personalidad sigue cacheada aparte. También
+  guarda la zona horaria en `ajustes`, que usan los avisos automáticos.
+- **Preferencias** (`preferencias`): `recordar_preferencia` /
+  `olvidar_preferencia`, hasta 40 por persona.
+- **Apodos** (`contactos.apodos`): `agregar_apodo` los guarda solos cuando
+  queda claro a quién se refería ("Anita" = Ana).
+- **Repeticiones** (`lib/repeticion.ts`): tareas y recordatorios con
+  `repeticion` (diaria, laborables, semanal + `dias_semana`, mensual).
+  Las tareas: un trigger crea la siguiente al completarlas. Los
+  recordatorios: el cron los reprograma a la misma hora local.
+- **Segundos**: `programar_recordatorio` acepta `HH:mm:ss` o
+  `dentro_de_segundos`. pg_cron revisa cada 10 s, pero solo llama a la app
+  si hay algo vencido (no gasta invocaciones de Vercel en vano).
+- **Clima** (`lib/clima.ts`): Open-Meteo, sin clave. `consultar_clima`.
+- **Ubicación** (`app/ubicacion-dispositivo.tsx`, `/api/ubicacion`):
+  geolocalización del navegador, redondeada a ~1 km, con nombre del lugar
+  vía OpenStreetMap (Nominatim). Se actualiza sola cada 3 h si hay permiso.
+- **Avisos automáticos** (`/api/cron/proactivo`, cada hora): resumen
+  semanal por correo + push (por defecto lunes 8:00, se cambia con
+  `configurar_avisos`) y aviso de lluvia a las 7:00 (solo push).
+- **Calendario** (`lib/calendario.ts`): solo lectura, con la dirección
+  secreta iCal (Google, Outlook, Apple). `conectar_calendario`,
+  `ver_calendario`, `desconectar_calendario`. Se valida el enlace (solo
+  https a dominios públicos, también en redirecciones).
+- **Adjuntos** (`lib/adjuntos.ts`): el clip sube a Storage (bucket
+  `adjuntos/<user_id>/`, 10 MB por archivo, 5 por mensaje). Viajan en la
+  metadata del mensaje; QIR ve imágenes y PDF del último mensaje y los
+  puede mandar con `enviar_correo`. "Nueva conversación" los borra.
+- **Internet**: `web_search` y `web_fetch` de Anthropic (hasta 3 usos por
+  mensaje, ~US$10 cada 1000 búsquedas). Las fuentes se ven debajo de la
+  respuesta.

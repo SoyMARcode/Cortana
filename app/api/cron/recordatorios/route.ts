@@ -1,11 +1,33 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { enviarAvisoConHora } from '@/lib/email';
-import { formatearEnZona } from '@/lib/zona-horaria';
+import { formatearEnZona, horaLocalAUtc, partesLocales } from '@/lib/zona-horaria';
+import { siguienteFecha, type Repeticion } from '@/lib/repeticion';
 import { enviarPush } from '@/lib/push';
 import { NOMBRE } from '@/lib/marca';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Próximo envío de un recordatorio que se repite, a la misma hora local
+ * (respeta los cambios de horario de verano). Si el aviso llegó muy tarde,
+ * salta las repeticiones que ya pasaron en vez de mandarlas todas juntas.
+ */
+function proximoEnvio(
+  enviarEn: string,
+  zona: string,
+  repeticion: Repeticion,
+  dias: number[] | null
+): Date | null {
+  const { fecha, hora } = partesLocales(new Date(enviarEn), zona);
+  let dia = fecha;
+  for (let i = 0; i < 400; i++) {
+    dia = siguienteFecha(dia, repeticion, dias);
+    const instante = horaLocalAUtc(`${dia}T${hora}`, zona);
+    if (instante && instante.getTime() > Date.now()) return instante;
+  }
+  return null;
+}
 
 /**
  * Envía los recordatorios con hora que ya vencieron. Lo llama pg_cron
@@ -62,9 +84,17 @@ export async function GET(req: Request) {
           : ({ ok: false, error: 'No se encontró el email del usuario' } as const);
 
     if (resultado.ok) {
+      const proximo = r.repeticion
+        ? proximoEnvio(r.enviar_en, r.zona_horaria, r.repeticion, r.dias_semana)
+        : null;
       await supabase
         .from('recordatorios')
-        .update({ enviado_en: new Date().toISOString(), ultimo_error: null })
+        .update(
+          proximo
+            ? // Se repite: queda pendiente para la próxima vez.
+              { enviar_en: proximo.toISOString(), reclamado_en: null, intentos: 0, ultimo_error: null }
+            : { enviado_en: new Date().toISOString(), ultimo_error: null }
+        )
         .eq('id', r.id);
       enviados++;
     } else {

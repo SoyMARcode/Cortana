@@ -6,13 +6,28 @@ export type Tarea = {
   fecha_limite: string | null;
   completada: boolean;
   updated_at: string;
+  repeticion: string | null;
+  dias_semana: number[] | null;
 };
 
-export type Contacto = { nombre: string; email: string };
+export type Contacto = { nombre: string; email: string; apodos: string[] };
 
-export type Recordatorio = { id: string; mensaje: string; enviar_en: string };
+export type Recordatorio = {
+  id: string;
+  mensaje: string;
+  enviar_en: string;
+  repeticion: string | null;
+  dias_semana: number[] | null;
+};
 
-export type Libreta = { tareas: Tarea[]; contactos: Contacto[]; recordatorios: Recordatorio[] };
+export type Ubicacion = { lugar: string | null; actualizada: string | null };
+
+export type Libreta = {
+  tareas: Tarea[];
+  contactos: Contacto[];
+  recordatorios: Recordatorio[];
+  ubicacion: Ubicacion;
+};
 
 /**
  * Tareas pendientes + las completadas en las últimas 36 h (el panel muestra
@@ -22,31 +37,40 @@ export type Libreta = { tareas: Tarea[]; contactos: Contacto[]; recordatorios: R
  */
 export async function cargarLibreta(supabase: SupabaseClient): Promise<Libreta> {
   const hace36h = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
-  const [tareas, contactos, recordatorios] = await Promise.all([
+  const [tareas, contactos, recordatorios, ajustes] = await Promise.all([
     supabase
       .from('tareas')
-      .select('id, titulo, fecha_limite, completada, updated_at')
+      .select('id, titulo, fecha_limite, completada, updated_at, repeticion, dias_semana')
       .or(`completada.eq.false,updated_at.gte.${hace36h}`)
       .order('fecha_limite', { ascending: true, nullsFirst: false }),
-    supabase.from('contactos').select('nombre, email').order('nombre'),
+    supabase.from('contactos').select('nombre, email, apodos').order('nombre'),
     supabase
       .from('recordatorios')
-      .select('id, mensaje, enviar_en')
+      .select('id, mensaje, enviar_en, repeticion, dias_semana')
       .is('enviado_en', null)
       .order('enviar_en')
       .limit(20),
+    supabase.from('ajustes').select('lugar, ubicacion_actualizada').maybeSingle(),
   ]);
   return {
     tareas: (tareas.data as Tarea[] | null) ?? [],
     contactos: (contactos.data as Contacto[] | null) ?? [],
     recordatorios: (recordatorios.data as Recordatorio[] | null) ?? [],
+    ubicacion: {
+      lugar: ajustes.data?.lugar ?? null,
+      actualizada: ajustes.data?.ubicacion_actualizada ?? null,
+    },
   };
 }
 
-/** "hoy 6:45", "mañana 7:00", "jue 1, 9:30" en la hora local del navegador. */
+/** "hoy 6:45", "mañana 7:00", "jue 1, 9:30" en la hora local del navegador (con segundos si los tiene). */
 export function textoAviso(enviarEn: string): string {
   const instante = new Date(enviarEn);
-  const hora = new Intl.DateTimeFormat('es', { hour: 'numeric', minute: '2-digit' }).format(instante);
+  const hora = new Intl.DateTimeFormat('es', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: instante.getUTCSeconds() ? '2-digit' : undefined,
+  }).format(instante);
   const fecha = new Intl.DateTimeFormat('en-CA').format(instante);
   const plazo = textoPlazo(fecha);
   return `${plazo}${plazo === 'hoy' || plazo === 'mañana' ? '' : ','} ${hora}`;
