@@ -9,7 +9,7 @@ general está en [ARCHITECTURE.md](ARCHITECTURE.md).
 | 1. Avisos inteligentes | No molestar · Aviso antes de cada evento · Rescate de tareas atrasadas · Limpieza semanal | Publicada |
 | 2. Comodidad | Botones de respuesta rápida · Tus tareas en Google Calendar | Publicada |
 | 3. Equipo y plata | Tareas en equipo · Gastos | Publicada |
-| 4. Memoria | Buscar en conversaciones anteriores · Preguntarle a tus documentos | Pendiente |
+| 4. Memoria | Buscar en conversaciones anteriores · Preguntarle a tus documentos | Publicada |
 | 5. Google Calendar | Crear y mover eventos | Pendiente |
 
 ---
@@ -219,3 +219,66 @@ colombianos). Herramientas `registrar_gasto`, `resumen_gastos`,
 `supabase-schema.sql`, bloque **Mejoras v8 (parte 3)**: columnas
 `tareas.asignada_por` y `asignada_por_email`, el trigger
 `tareas_avisar_asignada` y la tabla `gastos`.
+
+---
+
+## Parte 4 · Memoria
+
+### Buscar en conversaciones anteriores (M2)
+
+**Qué hace.** QIR ve solo los últimos 40 mensajes, pero ahora puede buscar
+en **todo** lo que hablaron, incluso después de tocar "nueva conversación":
+*"¿qué te dije del presupuesto?"*, *"¿de qué hablamos el martes?"*,
+*"¿cómo se llamaba el restaurante que te recomendé?"*.
+
+**Privacidad.** El archivo es privado de cada persona. Para borrarlo:
+*"olvidá todo lo que hablamos"* (se confirma con un botón y no se puede
+deshacer). Tareas, avisos, gastos y documentos no se tocan.
+
+**Por dentro.**
+- Tabla `mensajes_archivo`: el texto de cada mensaje (sin adjuntos ni
+  herramientas), con un índice de búsqueda en español (`tsvector`,
+  configuración `spanish`): "reunión" encuentra "reuniones".
+- `guardarConversacion()` (`lib/conversacion.ts`) copia los últimos 6
+  mensajes en cada guardado. Si un mensaje sigue después de una aprobación,
+  se actualiza. El SQL de activación pasó al archivo lo que ya estaba en
+  el historial.
+- Función `buscar_mensajes(consulta, desde, hasta)`, ordenada por
+  relevancia. Corre con la sesión de quien busca (RLS).
+- `consultaFlexible()` (`lib/documentos.ts`) une las palabras con `or`:
+  aparecen los mensajes que tengan cualquiera de ellas, primero los que
+  tienen más.
+
+### Preguntarle a tus documentos (M3)
+
+**Qué hace.** Adjuntás un PDF, un Word (.docx) o un archivo de texto y le
+decís *"guardá este documento"*. Desde ese momento, en cualquier
+conversación: *"¿qué dice el contrato sobre la renovación?"*, *"resumime
+el manual"*, *"¿cuántos días de vacaciones dice el reglamento?"*. QIR
+responde con lo que dice el documento y nombra la página.
+
+**Límites.**
+- Hasta 30 documentos por persona y ~400 páginas por documento.
+- **PDF escaneados** (fotos de páginas) no se pueden guardar porque no
+  tienen texto. Igual se pueden adjuntar en el chat: QIR los ve en ese
+  momento.
+- Se guarda solo el texto, no el archivo: si lo querés reenviar por
+  correo, adjuntalo de nuevo.
+
+**Por dentro.**
+- `lib/documentos.ts`: `extraerTexto()` lee PDF con *unpdf* (marca cada
+  página como `[Página N]`) y Word con *mammoth*. `fragmentar()` lo parte
+  en pedazos de hasta 1.500 caracteres que se solapan 200, cortando en
+  párrafos cuando puede.
+- Tablas `documentos` y `documento_fragmentos` (índice de búsqueda en
+  español) y la función `buscar_en_documentos(consulta, documento)`.
+- Herramientas: `guardar_documento`, `listar_documentos`,
+  `buscar_en_documentos` (los 6 fragmentos más relevantes),
+  `leer_documento` (en orden, de a ~12.000 caracteres, para resumir) y
+  `borrar_documento` (se confirma con un botón).
+
+### Activación (Supabase)
+
+`supabase-schema.sql`, bloque **Mejoras v8 (parte 4)**: tablas
+`mensajes_archivo`, `documentos` y `documento_fragmentos`, las funciones
+de búsqueda y el paso del historial actual al archivo.

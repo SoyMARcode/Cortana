@@ -6,6 +6,7 @@ import {
   tamanoLegible,
   type MetadataMensaje,
 } from '@/lib/adjuntos';
+import { sinSugerencias } from '@/lib/sugerencias';
 
 /** Mensajes que se guardan en la base (los más viejos se descartan). */
 const MAX_GUARDADOS = 200;
@@ -30,12 +31,47 @@ export async function guardarConversacion(
   userId: string,
   mensajes: UIMessage[]
 ) {
-  const { error } = await supabase.from('conversaciones').upsert({
-    user_id: userId,
-    mensajes: mensajes.slice(-MAX_GUARDADOS),
-    updated_at: new Date().toISOString(),
-  });
+  const [{ error }] = await Promise.all([
+    supabase.from('conversaciones').upsert({
+      user_id: userId,
+      mensajes: mensajes.slice(-MAX_GUARDADOS),
+      updated_at: new Date().toISOString(),
+    }),
+    archivarMensajes(supabase, userId, mensajes),
+  ]);
   if (error) console.error('[conversacion] No se pudo guardar el historial:', error.message);
+}
+
+/** Mensajes del final que se pasan al archivo en cada guardado (los de este turno y un margen). */
+const ARCHIVAR_ULTIMOS = 6;
+
+/**
+ * Copia el texto de los últimos mensajes a mensajes_archivo, donde se puede
+ * buscar todo lo hablado (buscar_en_conversaciones). Si un mensaje ya estaba
+ * (por ejemplo, una respuesta que siguió después de aprobar un correo), se
+ * actualiza con el texto completo. "Nueva conversación" no borra el archivo.
+ */
+async function archivarMensajes(supabase: SupabaseClient, userId: string, mensajes: UIMessage[]) {
+  const filas = mensajes
+    .slice(-ARCHIVAR_ULTIMOS)
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({
+      user_id: userId,
+      mensaje_id: m.id,
+      rol: m.role,
+      texto: sinSugerencias(
+        m.parts
+          .filter((p) => p.type === 'text')
+          .map((p) => (p as { text: string }).text)
+          .join(' ')
+      ).trim(),
+    }))
+    .filter((f) => f.texto);
+  if (!filas.length) return;
+  const { error } = await supabase
+    .from('mensajes_archivo')
+    .upsert(filas, { onConflict: 'user_id,mensaje_id' });
+  if (error) console.error('[conversacion] No se pudo archivar:', error.message);
 }
 
 /** Imágenes más grandes que esto no se le muestran al modelo (Anthropic acepta hasta 5 MB). */

@@ -561,4 +561,117 @@ create policy "usuarios gestionan sus gastos"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+-- ============================================================
+-- Mejoras v8 (parte 4): buscar en conversaciones anteriores y
+-- preguntarle a tus documentos. Búsqueda de texto en español de Postgres.
+-- ============================================================
+
+-- Archivo de mensajes: el texto de cada mensaje, para buscar en todo lo
+-- hablado. "Nueva conversación" no lo borra; se borra con la herramienta
+-- olvidar_conversaciones (con aprobación).
+create table if not exists mensajes_archivo (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  mensaje_id text not null,
+  rol text not null check (rol in ('user', 'assistant')),
+  texto text not null,
+  busqueda tsvector generated always as (to_tsvector('spanish', texto)) stored,
+  created_at timestamptz not null default now(),
+  unique (user_id, mensaje_id)
+);
+
+create index if not exists mensajes_archivo_busqueda_idx on mensajes_archivo using gin (busqueda);
+create index if not exists mensajes_archivo_user_fecha_idx on mensajes_archivo(user_id, created_at);
+
+alter table mensajes_archivo enable row level security;
+
+drop policy if exists "usuarios gestionan su archivo" on mensajes_archivo;
+create policy "usuarios gestionan su archivo"
+  on mensajes_archivo for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Lo que ya estaba en el historial pasa al archivo (con la fecha del
+-- último guardado, porque los mensajes viejos no tienen fecha propia).
+insert into mensajes_archivo (user_id, mensaje_id, rol, texto, created_at)
+select c.user_id, m->>'id', m->>'role', string_agg(p->>'text', ' '), c.updated_at
+  from conversaciones c,
+       jsonb_array_elements(c.mensajes) m,
+       jsonb_array_elements(m->'parts') p
+ where p->>'type' = 'text' and m->>'role' in ('user', 'assistant') and m->>'id' is not null
+ group by c.user_id, m->>'id', m->>'role', c.updated_at
+on conflict (user_id, mensaje_id) do nothing;
+
+-- Documentos guardados: solo el texto, partido en fragmentos para buscar.
+create table if not exists documentos (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  nombre text not null,
+  tipo text not null,
+  paginas integer,
+  caracteres integer not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists documentos_user_idx on documentos(user_id);
+
+alter table documentos enable row level security;
+
+drop policy if exists "usuarios gestionan sus documentos" on documentos;
+create policy "usuarios gestionan sus documentos"
+  on documentos for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create table if not exists documento_fragmentos (
+  id uuid primary key default uuid_generate_v4(),
+  documento_id uuid not null references documentos(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  numero integer not null,
+  texto text not null,
+  busqueda tsvector generated always as (to_tsvector('spanish', texto)) stored
+);
+
+create index if not exists documento_fragmentos_busqueda_idx on documento_fragmentos using gin (busqueda);
+create index if not exists documento_fragmentos_doc_idx on documento_fragmentos(documento_id, numero);
+
+alter table documento_fragmentos enable row level security;
+
+drop policy if exists "usuarios gestionan sus fragmentos" on documento_fragmentos;
+create policy "usuarios gestionan sus fragmentos"
+  on documento_fragmentos for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Búsquedas ordenadas por relevancia. security invoker: corren con la
+-- sesión de quien busca, así RLS limita a sus propias filas.
+create or replace function public.buscar_mensajes(consulta text, desde timestamptz, hasta timestamptz, limite integer default 10)
+returns table (rol text, texto text, created_at timestamptz, relevancia real)
+language sql stable security invoker set search_path = ''
+as $$
+  select m.rol, m.texto, m.created_at,
+         case when consulta is null or consulta = '' then 0
+              else ts_rank(m.busqueda, websearch_to_tsquery('spanish', consulta)) end
+    from public.mensajes_archivo m
+   where (desde is null or m.created_at >= desde)
+     and (hasta is null or m.created_at < hasta)
+     and (consulta is null or consulta = '' or m.busqueda @@ websearch_to_tsquery('spanish', consulta))
+   order by 4 desc, m.created_at desc
+   limit limite;
+$$;
+
+create or replace function public.buscar_en_documentos(consulta text, documento uuid, limite integer default 6)
+returns table (documento_id uuid, nombre text, numero integer, texto text, relevancia real)
+language sql stable security invoker set search_path = ''
+as $$
+  select f.documento_id, d.nombre, f.numero, f.texto,
+         ts_rank(f.busqueda, websearch_to_tsquery('spanish', consulta))
+    from public.documento_fragmentos f
+    join public.documentos d on d.id = f.documento_id
+   where f.busqueda @@ websearch_to_tsquery('spanish', consulta)
+     and (documento is null or f.documento_id = documento)
+   order by 5 desc
+   limit limite;
+$$;
+
 notify pgrst, 'reload schema';

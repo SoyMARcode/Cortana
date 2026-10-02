@@ -3,6 +3,14 @@ import { z } from 'zod';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { enviarCorreoLibre, fechaLegible, type Adjunto as AdjuntoCorreo } from '@/lib/email';
 import { CATEGORIAS_GASTO, formatearMonto, resumirGastos } from '@/lib/gastos';
+import {
+  consultaFlexible,
+  extraerTexto,
+  fragmentar,
+  MAX_CARACTERES,
+  MAX_DOCUMENTOS,
+  tipoSoportado,
+} from '@/lib/documentos';
 import { formatearEnZona, horaLocalAUtc, partesLocales } from '@/lib/zona-horaria';
 import { REPETICIONES, textoRepeticion } from '@/lib/repeticion';
 import { buscarLugar, pronostico } from '@/lib/clima';
@@ -1039,6 +1047,237 @@ export function crearHerramientas(
           .select('id');
         if (error) return { ok: false, error: error.message };
         if (!data?.length) return { ok: false, error: 'No existe ese gasto.' };
+        return { ok: true, borrado: true };
+      },
+    }),
+
+    // ---- Memoria: conversaciones anteriores y documentos ----
+
+    buscar_en_conversaciones: tool({
+      description:
+        'Busca en TODO lo hablado con el usuario, también en conversaciones anteriores que ya no se ven ("¿qué te dije del presupuesto?", "¿de qué hablamos el martes?"). Pasá palabras clave, un rango de fechas, o las dos cosas.',
+      inputSchema: z.object({
+        consulta: z
+          .string()
+          .max(200)
+          .optional()
+          .describe('Palabras clave, ej. "presupuesto Ana". Omitir para traer todo lo de un rango de fechas'),
+        desde: z.string().optional().describe('Primer día YYYY-MM-DD, incluido'),
+        hasta: z.string().optional().describe('Último día YYYY-MM-DD, incluido'),
+      }),
+      execute: async ({ consulta, desde, hasta }) => {
+        if (!consulta && !desde && !hasta) {
+          return { ok: false, error: 'Indicá palabras clave o un rango de fechas.' };
+        }
+        const inicio = desde ? horaLocalAUtc(`${desde}T00:00`, zonaHoraria) : null;
+        const finDia = hasta ? horaLocalAUtc(`${hasta}T00:00`, zonaHoraria) : null;
+        const supabase = await createClient();
+        const { data, error } = await supabase.rpc('buscar_mensajes', {
+          consulta: consulta ? consultaFlexible(consulta) : null,
+          desde: inicio?.toISOString() ?? null,
+          hasta: finDia ? new Date(finDia.getTime() + 86_400_000).toISOString() : null,
+          limite: 12,
+        });
+        if (error) return { ok: false, error: error.message };
+        return {
+          ok: true,
+          resultados: (data ?? []).map((m: { rol: string; texto: string; created_at: string }) => ({
+            quien: m.rol === 'user' ? 'el usuario' : 'QIR',
+            cuando: formatearEnZona(new Date(m.created_at), zonaHoraria),
+            texto: m.texto.length > 600 ? m.texto.slice(0, 600) + '…' : m.texto,
+          })),
+        };
+      },
+    }),
+
+    olvidar_conversaciones: tool({
+      description:
+        'Borra para siempre el archivo de todo lo hablado (lo que usa buscar_en_conversaciones). El usuario lo confirma con un botón. Usar solo si lo pide explícitamente.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        const supabase = await createClient();
+        const { error } = await supabase.from('mensajes_archivo').delete().eq('user_id', userId);
+        if (error) return { ok: false, error: error.message };
+        return { ok: true, olvidado: true };
+      },
+    }),
+
+    guardar_documento: tool({
+      description:
+        'Guarda un documento que el usuario adjuntó (PDF, Word .docx o texto) para poder preguntarle cosas después, en cualquier conversación. Usá el nombre y la ruta exactos de "[Adjuntos del usuario]".',
+      inputSchema: z.object({
+        nombre: z.string().describe('Nombre del archivo, tal cual aparece en los adjuntos'),
+        ruta: z.string().describe('Ruta del adjunto, tal cual aparece en los adjuntos'),
+      }),
+      execute: async ({ nombre, ruta }) => {
+        if (!ruta.startsWith(`${userId}/`)) return { ok: false, error: 'Ese archivo no es de esta cuenta.' };
+        const supabase = await createClient();
+        const { count } = await supabase
+          .from('documentos')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId);
+        if ((count ?? 0) >= MAX_DOCUMENTOS) {
+          return { ok: false, error: `Ya hay ${MAX_DOCUMENTOS} documentos guardados: hay que borrar alguno.` };
+        }
+        const { data: archivo, error: errorArchivo } = await supabase.storage.from(BUCKET_ADJUNTOS).download(ruta);
+        if (errorArchivo || !archivo) {
+          return { ok: false, error: 'No encontré el archivo. Pedile que lo vuelva a adjuntar.' };
+        }
+        const clase = tipoSoportado(archivo.type, nombre);
+        if (!clase) return { ok: false, error: 'Solo se pueden guardar PDF, Word (.docx) o archivos de texto.' };
+
+        let extraido: { texto: string; paginas?: number };
+        try {
+          extraido = await extraerTexto(Buffer.from(await archivo.arrayBuffer()), clase);
+        } catch (e) {
+          console.error('[documentos] No se pudo leer:', e);
+          return { ok: false, error: 'No pude leer el archivo. Puede estar dañado o protegido con contraseña.' };
+        }
+        // Un PDF escaneado (fotos de páginas) no trae texto.
+        const soloTexto = extraido.texto.replace(/\[Página \d+\]/g, '').trim();
+        if (soloTexto.length < 20) {
+          return {
+            ok: false,
+            error:
+              'El documento no tiene texto que se pueda leer (parece escaneado). Las imágenes las puedo ver en el chat, pero no guardarlas como documento.',
+          };
+        }
+        if (extraido.texto.length > MAX_CARACTERES) {
+          return { ok: false, error: 'El documento es demasiado largo (más de ~400 páginas).' };
+        }
+
+        const fragmentos = fragmentar(extraido.texto);
+        const { data: doc, error } = await supabase
+          .from('documentos')
+          .insert({
+            user_id: userId,
+            nombre,
+            tipo: clase,
+            paginas: extraido.paginas ?? null,
+            caracteres: extraido.texto.length,
+          })
+          .select('id, nombre')
+          .single();
+        if (error) return { ok: false, error: error.message };
+        for (let i = 0; i < fragmentos.length; i += 200) {
+          const { error: e } = await supabase.from('documento_fragmentos').insert(
+            fragmentos.slice(i, i + 200).map((texto, j) => ({
+              documento_id: doc.id,
+              user_id: userId,
+              numero: i + j + 1,
+              texto,
+            }))
+          );
+          if (e) {
+            await supabase.from('documentos').delete().eq('id', doc.id);
+            return { ok: false, error: e.message };
+          }
+        }
+        return {
+          ok: true,
+          documento: { ...doc, paginas: extraido.paginas ?? null, fragmentos: fragmentos.length },
+        };
+      },
+    }),
+
+    listar_documentos: tool({
+      description: 'Lista los documentos que el usuario guardó, con su id.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        const supabase = await createClient();
+        const { data, error } = await supabase
+          .from('documentos')
+          .select('id, nombre, tipo, paginas, created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+        if (error) return { ok: false, error: error.message };
+        return { ok: true, documentos: data };
+      },
+    }),
+
+    buscar_en_documentos: tool({
+      description:
+        'Busca en los documentos guardados del usuario los fragmentos que responden una pregunta. Respondé solo con lo que dicen los fragmentos, citando el documento (y la página si aparece).',
+      inputSchema: z.object({
+        pregunta: z.string().min(2).max(300).describe('Lo que hay que encontrar, con las palabras importantes'),
+        documento_id: z.string().optional().describe('Para buscar en un solo documento (ver listar_documentos)'),
+      }),
+      execute: async ({ pregunta, documento_id }) => {
+        const supabase = await createClient();
+        const { data, error } = await supabase.rpc('buscar_en_documentos', {
+          consulta: consultaFlexible(pregunta),
+          documento: documento_id ?? null,
+          limite: 6,
+        });
+        if (error) return { ok: false, error: error.message };
+        if (!data?.length) {
+          return {
+            ok: true,
+            fragmentos: [],
+            nota: 'No encontré nada con esas palabras. Probá con sinónimos, o leé el documento con leer_documento.',
+          };
+        }
+        return {
+          ok: true,
+          fragmentos: data.map((f: { nombre: string; numero: number; texto: string; documento_id: string }) => ({
+            documento: f.nombre,
+            documento_id: f.documento_id,
+            fragmento: f.numero,
+            texto: f.texto,
+          })),
+        };
+      },
+    }),
+
+    leer_documento: tool({
+      description:
+        'Lee un documento guardado en orden, de a partes (para resumirlo o cuando la búsqueda no alcanza). Devuelve hasta ~12.000 caracteres por vez; para seguir, pasá desde_fragmento con el valor de "siguiente".',
+      inputSchema: z.object({
+        documento_id: z.string().describe('El id del documento (ver listar_documentos)'),
+        desde_fragmento: z.number().int().min(1).optional().default(1),
+      }),
+      execute: async ({ documento_id, desde_fragmento }) => {
+        const supabase = await createClient();
+        const { data, error } = await supabase
+          .from('documento_fragmentos')
+          .select('numero, texto')
+          .eq('documento_id', documento_id)
+          .eq('user_id', userId)
+          .gte('numero', desde_fragmento)
+          .order('numero')
+          .limit(8);
+        if (error) return { ok: false, error: error.message };
+        if (!data?.length) return { ok: false, error: 'No hay más texto o el documento no existe.' };
+        const { count } = await supabase
+          .from('documento_fragmentos')
+          .select('id', { count: 'exact', head: true })
+          .eq('documento_id', documento_id);
+        const ultimo = data[data.length - 1].numero;
+        return {
+          ok: true,
+          texto: data.map((f) => f.texto).join('\n\n'),
+          fragmentos: `${desde_fragmento} a ${ultimo} de ${count ?? '?'}`,
+          siguiente: count && ultimo < count ? ultimo + 1 : null,
+        };
+      },
+    }),
+
+    borrar_documento: tool({
+      description: 'Borra un documento guardado, dado su id y su nombre. El usuario lo confirma con un botón.',
+      inputSchema: z.object({
+        id: z.string().describe('El id del documento'),
+        nombre: z.string().describe('El nombre, para mostrarlo en la confirmación'),
+      }),
+      execute: async ({ id }) => {
+        const supabase = await createClient();
+        const { data, error } = await supabase
+          .from('documentos')
+          .delete()
+          .eq('id', id)
+          .eq('user_id', userId)
+          .select('id');
+        if (error) return { ok: false, error: error.message };
+        if (!data?.length) return { ok: false, error: 'No existe ese documento.' };
         return { ok: true, borrado: true };
       },
     }),

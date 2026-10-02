@@ -137,6 +137,8 @@ export async function POST(req: Request) {
               reason: 'El correo va a otras personas: confirmá antes de enviarlo.',
             },
       borrar_tarea: 'user-approval',
+      borrar_documento: 'user-approval',
+      olvidar_conversaciones: 'user-approval',
     },
     stopWhen: isStepCount(8),
   });

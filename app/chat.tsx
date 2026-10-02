@@ -79,6 +79,13 @@ const NOMBRES_HERRAMIENTA: Record<string, string> = {
   resumen_gastos: 'sumando tus gastos',
   listar_gastos: 'revisando tus gastos',
   borrar_gasto: 'gasto borrado',
+  buscar_en_conversaciones: 'buscando en lo que hablamos',
+  olvidar_conversaciones: 'borrando el archivo',
+  guardar_documento: 'leyendo el documento',
+  listar_documentos: 'revisando tus documentos',
+  buscar_en_documentos: 'buscando en tus documentos',
+  leer_documento: 'leyendo el documento',
+  borrar_documento: 'borrando el documento',
 };
 
 function adjuntosDe(mensaje: UIMessage): Adjunto[] {
@@ -202,6 +209,41 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
     }
   }
 
+  if (toolPart.type === 'tool-borrar_documento') {
+    if (pideAprobacion) {
+      return (
+        <Aprobacion pregunta="¿Borro este documento?" confirmar="Borrar" toolPart={toolPart} responder={responder}>
+          <p className="font-medium">{toolPart.input?.nombre}</p>
+          <p className="text-[var(--ink-soft)]">{NOMBRE} no va a poder consultarlo más. No se puede deshacer.</p>
+        </Aprobacion>
+      );
+    }
+    if (toolPart.state === 'output-denied') {
+      return <div className="my-1 text-sm italic text-[var(--ink-soft)]">el documento sigue guardado</div>;
+    }
+  }
+
+  if (toolPart.type === 'tool-olvidar_conversaciones') {
+    if (pideAprobacion) {
+      return (
+        <Aprobacion
+          pregunta="¿Borro todo lo que hablamos?"
+          confirmar="Borrar el archivo"
+          toolPart={toolPart}
+          responder={responder}
+        >
+          <p className="text-[var(--ink-soft)]">
+            {NOMBRE} no va a poder buscar en las conversaciones anteriores. Tus tareas, avisos, gastos y
+            documentos quedan como están. No se puede deshacer.
+          </p>
+        </Aprobacion>
+      );
+    }
+    if (toolPart.state === 'output-denied') {
+      return <div className="my-1 text-sm italic text-[var(--ink-soft)]">el archivo sigue ahí</div>;
+    }
+  }
+
   if (toolPart.type === 'tool-borrar_tarea') {
     if (pideAprobacion) {
       return (
@@ -259,6 +301,18 @@ function EtiquetaTarea({ toolPart, responder }: { toolPart: any; responder: Resp
         <span className="fuente-editorial italic text-[var(--ink-soft)]">
           {salida.recordatorio.cuando_local}
           {salida.recordatorio.se_repite && ` · ↻ ${salida.recordatorio.se_repite}`}
+        </span>
+      </div>
+    );
+  }
+
+  if (salida?.documento) {
+    return (
+      <div className={`${CHIP} bg-[var(--paper-note)]`}>
+        <IconoClip />
+        <span className="font-medium">{salida.documento.nombre}</span>
+        <span className="fuente-editorial italic text-[var(--ink-soft)]">
+          guardado{salida.documento.paginas ? ` · ${salida.documento.paginas} páginas` : ''}
         </span>
       </div>
     );
