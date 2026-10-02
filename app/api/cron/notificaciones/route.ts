@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { enviarRecordatorio } from '@/lib/email';
 import { enviarPush } from '@/lib/push';
+import { firmarAviso } from '@/lib/firma-aviso';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +51,8 @@ export async function GET(req: Request) {
       cuerpo:
         dias === 0 ? 'Vence hoy.' : dias === 1 ? 'Vence mañana.' : `Faltan ${dias} días.`,
       tag: `tarea-${tarea.id}`,
+      acciones: [{ accion: 'hecha', titulo: 'Marcar hecha' }],
+      aviso: { tipo: 'tarea', id: tarea.id, firma: firmarAviso('tarea', tarea.id) },
     });
 
     let resultado: { ok: true } | { ok: false; error: string } = { ok: true };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useEffectEvent } from 'react';
 import { useChat } from '@ai-sdk/react';
 import {
   DefaultChatTransport,
@@ -381,6 +381,11 @@ export default function Chat({
   const archivoRef = useRef<HTMLInputElement>(null);
   const [vozActivada, setVozActivada] = useState(true);
   const [escuchando, setEscuchando] = useState(false);
+  // Manos libres: cuando QIR termina de hablar, el micrófono se abre solo y
+  // lo que se dice se envía al terminar la frase. El ref lo leen los
+  // callbacks del dictado, que viven más que un render.
+  const [manosLibres, setManosLibres] = useState(false);
+  const manosLibresRef = useRef(false);
   // El historial cargado ya fue leído: no se vuelve a decir en voz alta al abrir.
   const ultimoLeidoRef = useRef<string | null>(
     mensajesIniciales[mensajesIniciales.length - 1]?.id ?? null
@@ -415,10 +420,18 @@ export default function Chat({
       .join(' ');
 
     if (texto) {
-      hablar(texto);
       ultimoLeidoRef.current = ultimo.id;
+      hablar(texto).then((completo) => {
+        if (completo) despuesDeHablar();
+      });
     }
   }, [messages, status, vozActivada]);
+
+  // Con manos libres, al terminar de leer la respuesta se vuelve a escuchar.
+  // Si QIR espera que se apruebe algo con un botón, no: hay que tocarlo.
+  const despuesDeHablar = useEffectEvent(() => {
+    if (manosLibresRef.current && !tieneAprobacionPendiente(messages)) escucharManosLibres();
+  });
 
   useEffect(() => {
     if (!hojaAbierta) return;
@@ -507,20 +520,88 @@ export default function Chat({
     supabase.storage.from(BUCKET_ADJUNTOS).remove([ruta]);
   }
 
+  function mandar(texto: string) {
+    clearError();
+    // Este toque es lo que habilita que la respuesta se escuche (iPhone/Chrome).
+    if (vozActivada) desbloquearVoz();
+    sendMessage({
+      text: texto || 'Te adjunto esto.',
+      metadata: adjuntos.length ? { adjuntos } : undefined,
+    });
+    setInput('');
+    setAdjuntos([]);
+  }
+
   function enviar(e: React.FormEvent) {
     e.preventDefault();
     if ((!input.trim() && !adjuntos.length) || esperandoAprobacion || subiendo) return;
     // Si se envía mientras dicta, lo que falte reconocer ya no debe pisar el campo vacío.
     dictadoRef.current?.cancelar();
-    clearError();
-    // Este toque es lo que habilita que la respuesta se escuche (iPhone/Chrome).
-    if (vozActivada) desbloquearVoz();
-    sendMessage({
-      text: input.trim() || 'Te adjunto esto.',
-      metadata: adjuntos.length ? { adjuntos } : undefined,
+    mandar(input.trim());
+  }
+
+  function apagarManosLibres() {
+    manosLibresRef.current = false;
+    setManosLibres(false);
+    dictadoRef.current?.cancelar();
+  }
+
+  /** Escucha una frase y la envía sola. Si no se dice nada, manos libres queda en pausa. */
+  function escucharManosLibres() {
+    if (!manosLibresRef.current || dictadoRef.current) return;
+    let dicho = '';
+    const dictado = iniciarDictado({
+      continuo: false,
+      alTexto: (texto) => {
+        dicho = texto;
+        setInput(texto);
+      },
+      alError: (mensaje, codigo) => {
+        // Silencio o corte: se resuelve en alTerminar. Otro error apaga manos libres.
+        if (codigo === 'no-speech' || codigo === 'aborted') return;
+        apagarManosLibres();
+        if (mensaje) avisar('Manos libres se apagó', mensaje);
+      },
+      alTerminar: () => {
+        setEscuchando(false);
+        dictadoRef.current = null;
+        if (!manosLibresRef.current) return;
+        if (dicho.trim()) {
+          mandar(dicho.trim());
+        } else {
+          apagarManosLibres();
+          notificar('Manos libres en pausa: no escuché nada.', 'info');
+        }
+      },
     });
-    setInput('');
-    setAdjuntos([]);
+    if (!dictado) {
+      apagarManosLibres();
+      return;
+    }
+    dictadoRef.current = dictado;
+    setEscuchando(true);
+  }
+
+  function alternarManosLibres() {
+    if (manosLibresRef.current) {
+      apagarManosLibres();
+      return;
+    }
+    if (!soportaDictado()) {
+      avisar(
+        'Sin manos libres en este navegador',
+        'Tu navegador no reconoce voz. Probá con Chrome o Edge.'
+      );
+      return;
+    }
+    // Sin voz no hay manos libres: QIR tiene que responder en voz alta.
+    setVozActivada(true);
+    desbloquearVoz();
+    detenerVoz();
+    dictadoRef.current?.cancelar();
+    manosLibresRef.current = true;
+    setManosLibres(true);
+    escucharManosLibres();
   }
 
   function alternarMicrofono() {
@@ -602,13 +683,25 @@ export default function Chat({
       )}
       <button
         onClick={() => {
-          if (vozActivada) detenerVoz();
-          else desbloquearVoz();
+          if (vozActivada) {
+            detenerVoz();
+            apagarManosLibres();
+          } else {
+            desbloquearVoz();
+          }
           setVozActivada((v) => !v);
         }}
         className={ENLACE}
       >
         {vozActivada ? 'silenciar voz' : 'activar voz'}
+      </button>
+      <button
+        onClick={alternarManosLibres}
+        aria-pressed={manosLibres}
+        title="QIR te escucha sola después de cada respuesta"
+        className={`${ENLACE} ${manosLibres ? 'font-medium text-[var(--teal)]' : ''}`}
+      >
+        {manosLibres ? 'apagar manos libres' : 'manos libres'}
       </button>
       <button onClick={cerrarSesion} className={ENLACE}>
         cerrar sesión
@@ -765,7 +858,9 @@ export default function Chat({
                 esperandoAprobacion
                   ? 'Primero confirmá o cancelá lo de arriba'
                   : escuchando
-                    ? 'Te escucho, hablá...'
+                    ? manosLibres
+                      ? 'Te escucho (manos libres)...'
+                      : 'Te escucho, hablá...'
                     : 'Escribí o usá el micrófono...'
               }
               className="min-w-0 flex-1 border-b border-[var(--paper-line)] bg-transparent px-1 py-2 text-base outline-none placeholder:text-[var(--ink-soft)] focus:border-[var(--ink)] md:text-[15px]"

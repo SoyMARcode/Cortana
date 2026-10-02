@@ -14,6 +14,8 @@ export type Ajustes = {
   resumen_dia: number;
   resumen_hora: number;
   aviso_lluvia: boolean;
+  buenos_dias: boolean;
+  buenos_dias_hora: number;
   calendario_ics: string | null;
 };
 
@@ -88,7 +90,9 @@ export async function cargarContexto(
         a.resumen_semanal
           ? `activado, los ${DIAS[a.resumen_dia]} a las ${horaEnPunto(a.resumen_hora)}`
           : 'desactivado'
-      }. Aviso de lluvia por la mañana: ${a.aviso_lluvia ? 'activado' : 'desactivado'}. Calendario: ${
+      }. Buenos días diario: ${
+        a.buenos_dias ? `activado, a las ${horaEnPunto(a.buenos_dias_hora)}` : 'desactivado'
+      }. Aviso de lluvia suelto: ${a.aviso_lluvia ? 'activado' : 'desactivado'}. Calendario: ${
         a.calendario_ics ? 'conectado' : 'no conectado'
       }.`
     );

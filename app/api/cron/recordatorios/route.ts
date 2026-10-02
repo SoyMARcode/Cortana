@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { enviarAvisoConHora } from '@/lib/email';
 import { formatearEnZona, horaLocalAUtc, partesLocales } from '@/lib/zona-horaria';
 import { siguienteFecha, type Repeticion } from '@/lib/repeticion';
+import { firmarAviso } from '@/lib/firma-aviso';
 import { enviarPush } from '@/lib/push';
 import { NOMBRE } from '@/lib/marca';
 
@@ -73,6 +74,11 @@ export async function GET(req: Request) {
       titulo: r.mensaje,
       cuerpo: `Recordatorio de ${NOMBRE} · ${cuandoLocal}`,
       tag: `recordatorio-${r.id}`,
+      acciones: [
+        { accion: 'posponer', titulo: 'Posponer 10 min' },
+        r.tarea_id ? { accion: 'hecha', titulo: 'Marcar hecha' } : { accion: 'listo', titulo: 'Listo' },
+      ],
+      aviso: { tipo: 'recordatorio', id: r.id, firma: firmarAviso('recordatorio', r.id) },
     });
 
     const destinatario = entregadosPush > 0 ? null : await emailDe(r.user_id);

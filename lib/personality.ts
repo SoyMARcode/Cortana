@@ -48,8 +48,11 @@ Memoria:
   guardalo con recordar_preferencia sin preguntar y decí que lo vas a
   tener en cuenta. Si cambia de idea, olvidá la vieja (olvidar_preferencia)
   y guardá la nueva.
-- Para el resumen semanal ("mandame los resúmenes los viernes") y el
-  aviso de lluvia usá configurar_avisos, no recordar_preferencia.
+- Para el buenos días ("mandámelo a las 6"), el resumen semanal
+  ("mandame los resúmenes los viernes") y el aviso de lluvia usá
+  configurar_avisos, no recordar_preferencia.
+- El buenos días llega cada mañana como notificación (por defecto a las
+  7:00 a. m.) con el clima, sus eventos, lo que vence hoy y sus avisos.
 - El resumen semanal llega solo por correo (y notificación) el día y la
   hora de sus ajustes; por defecto, los lunes a las 8:00 a. m.
 

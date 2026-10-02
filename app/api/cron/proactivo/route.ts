@@ -4,6 +4,7 @@ import { enviarResumenSemanal } from '@/lib/email';
 import { enviarPush } from '@/lib/push';
 import { pronostico } from '@/lib/clima';
 import { armarResumen } from '@/lib/resumen';
+import { armarBuenosDias } from '@/lib/buenos-dias';
 import { partesLocales } from '@/lib/zona-horaria';
 import { NOMBRE } from '@/lib/marca';
 
@@ -25,6 +26,9 @@ type Fila = {
   ultimo_resumen: string | null;
   aviso_lluvia: boolean;
   ultimo_aviso_lluvia: string | null;
+  buenos_dias: boolean;
+  buenos_dias_hora: number;
+  ultimo_buenos_dias: string | null;
   calendario_ics: string | null;
 };
 
@@ -32,7 +36,9 @@ type Fila = {
  * Avisos que QIR manda sin que se los pidan. Lo llama pg_cron cada hora en
  * punto (ver supabase-cron.sql); a cada persona le toca según su hora local:
  * - Resumen semanal: el día y la hora de sus ajustes (por defecto lunes 8:00).
- * - Lluvia: a las 7:00, si hay ubicación guardada y va a llover.
+ * - Buenos días: cada mañana a la hora de sus ajustes (por defecto 7:00), con
+ *   clima, eventos, tareas y avisos de hoy. Ya trae el aviso de lluvia.
+ * - Lluvia sola: a las 7:00, solo para quien apagó el buenos días.
  */
 export async function GET(req: Request) {
   const secreto = process.env.CRON_SECRET;
@@ -47,9 +53,9 @@ export async function GET(req: Request) {
   const { data: filas, error } = await supabase
     .from('ajustes')
     .select(
-      'user_id, zona_horaria, latitud, longitud, lugar, resumen_semanal, resumen_dia, resumen_hora, ultimo_resumen, aviso_lluvia, ultimo_aviso_lluvia, calendario_ics'
+      'user_id, zona_horaria, latitud, longitud, lugar, resumen_semanal, resumen_dia, resumen_hora, ultimo_resumen, aviso_lluvia, ultimo_aviso_lluvia, buenos_dias, buenos_dias_hora, ultimo_buenos_dias, calendario_ics'
     )
-    .or('resumen_semanal.eq.true,aviso_lluvia.eq.true');
+    .or('resumen_semanal.eq.true,aviso_lluvia.eq.true,buenos_dias.eq.true');
 
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
@@ -58,6 +64,7 @@ export async function GET(req: Request) {
   const ahora = new Date();
   let resumenes = 0;
   let lluvias = 0;
+  let buenosDias = 0;
   const errores: { user_id: string; motivo: string }[] = [];
 
   for (const f of (filas ?? []) as Fila[]) {
@@ -92,7 +99,23 @@ export async function GET(req: Request) {
     }
 
     if (
+      f.buenos_dias &&
+      local.horaDelDia === f.buenos_dias_hora &&
+      f.ultimo_buenos_dias !== local.fecha
+    ) {
+      try {
+        const aviso = await armarBuenosDias(supabase, f);
+        // Solo push: es un vistazo rápido, un correo diario sería demasiado.
+        if (aviso && (await enviarPush(f.user_id, { ...aviso, tag: 'buenos-dias' })) > 0) buenosDias++;
+        await supabase.from('ajustes').update({ ultimo_buenos_dias: local.fecha }).eq('user_id', f.user_id);
+      } catch (e) {
+        errores.push({ user_id: f.user_id, motivo: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    if (
       f.aviso_lluvia &&
+      !f.buenos_dias &&
       f.latitud != null &&
       f.longitud != null &&
       local.horaDelDia === HORA_AVISO_LLUVIA &&
@@ -120,5 +143,5 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, revisados: filas?.length ?? 0, resumenes, lluvias, errores });
+  return NextResponse.json({ ok: true, revisados: filas?.length ?? 0, resumenes, buenosDias, lluvias, errores });
 }

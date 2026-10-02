@@ -121,10 +121,20 @@ function elegirVozEnEspanol(voces: SpeechSynthesisVoice[]): SpeechSynthesisVoice
   return femenina || enEspanol[0] || voces[0];
 }
 
-export async function hablar(texto: string) {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+/** Sube con cada lectura nueva o corte: una lectura vieja sabe que la reemplazaron. */
+let generacion = 0;
+
+/**
+ * Lee el texto en voz alta. La promesa se resuelve al terminar: true si
+ * terminó de leer, false si se cortó (otra lectura, detenerVoz) o no se
+ * pudo. Manos libres la usa para abrir el micrófono recién cuando QIR
+ * deja de hablar, así no se escucha a sí misma.
+ */
+export async function hablar(texto: string): Promise<boolean> {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
 
   const synth = window.speechSynthesis;
+  const mia = ++generacion;
   // Corta cualquier lectura anterior antes de empezar una nueva
   synth.cancel();
 
@@ -132,30 +142,52 @@ export async function hablar(texto: string) {
   const voz = elegirVozEnEspanol(voces);
   // En pantalla dice "QIR"; en voz alta, "Kir" (si no, lo deletrea).
   const hablado = textoParaLeer(texto).replace(new RegExp(`\\b${NOMBRE}\\b`, 'g'), NOMBRE_HABLADO);
-  if (!hablado) return;
+  if (!hablado || mia !== generacion) return false;
 
-  enCurso = enTrozos(hablado).map((trozo) => {
-    const u = new SpeechSynthesisUtterance(trozo);
-    if (voz) u.voice = voz;
-    u.lang = voz?.lang || 'es-ES';
-    u.rate = 1;
-    u.onerror = (e) => {
-      // "interrupted"/"canceled" son normales: se cortó para leer otra cosa.
-      if (e.error !== 'interrupted' && e.error !== 'canceled') {
-        console.warn('[voz] No se pudo leer en voz alta:', e.error);
-      }
+  return new Promise<boolean>((resolver) => {
+    let resuelta = false;
+    let sondeo: ReturnType<typeof setInterval> | undefined;
+    const fin = (ok: boolean) => {
+      if (resuelta) return;
+      resuelta = true;
+      clearInterval(sondeo);
+      resolver(ok && mia === generacion);
     };
-    return u;
-  });
 
-  // Chrome pierde lo que se encola justo después de cancel(): se espera un instante.
-  await new Promise((r) => setTimeout(r, 60));
-  // Si quedó en pausa (pasa en Chrome al volver de otra pestaña), se reanuda.
-  synth.resume();
-  for (const u of enCurso) synth.speak(u);
+    enCurso = enTrozos(hablado).map((trozo) => {
+      const u = new SpeechSynthesisUtterance(trozo);
+      if (voz) u.voice = voz;
+      u.lang = voz?.lang || 'es-ES';
+      u.rate = 1;
+      u.onerror = (e) => {
+        // "interrupted"/"canceled" son normales: se cortó para leer otra cosa.
+        if (e.error !== 'interrupted' && e.error !== 'canceled') {
+          console.warn('[voz] No se pudo leer en voz alta:', e.error);
+        }
+        fin(false);
+      };
+      return u;
+    });
+    enCurso[enCurso.length - 1].onend = () => fin(true);
+
+    // Chrome pierde lo que se encola justo después de cancel(): se espera un instante.
+    setTimeout(() => {
+      if (mia !== generacion) return fin(false);
+      // Si quedó en pausa (pasa en Chrome al volver de otra pestaña), se reanuda.
+      synth.resume();
+      for (const u of enCurso) synth.speak(u);
+      // Respaldo: algunos navegadores no avisan el final (onend). Se mira
+      // cada medio segundo si ya terminó de hablar.
+      sondeo = setInterval(() => {
+        if (mia !== generacion) fin(false);
+        else if (!synth.speaking && !synth.pending) fin(true);
+      }, 500);
+    }, 60);
+  });
 }
 
 export function detenerVoz() {
+  generacion++;
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     window.speechSynthesis.cancel();
   }
@@ -193,10 +225,18 @@ export interface Dictado {
 interface OpcionesDictado {
   /** Texto dictado hasta ahora; `final` es true cuando ya no va a cambiar. */
   alTexto: (texto: string, final: boolean) => void;
-  /** Explicación lista para mostrar, o null si no hace falta avisar nada. */
-  alError: (mensaje: string | null) => void;
+  /**
+   * Explicación lista para mostrar (o null si no hace falta avisar nada) y
+   * el código del navegador, ej. "no-speech" cuando no se dijo nada.
+   */
+  alError: (mensaje: string | null, codigo: string) => void;
   /** Siempre se llama al final, haya salido bien o mal. */
   alTerminar: () => void;
+  /**
+   * true: escucha hasta que se toque el botón. false: una frase y se apaga
+   * solo (manos libres). Por defecto, continuo salvo en Android.
+   */
+  continuo?: boolean;
 }
 
 export function soportaDictado(): boolean {
@@ -251,7 +291,12 @@ function mensajeDeError(codigo: string): string | null {
  * Dictado por voz: va escribiendo lo que se dice mientras se habla.
  * Devuelve null si el navegador no lo soporta (ej. Firefox) o no pudo arrancar.
  */
-export function iniciarDictado({ alTexto, alError, alTerminar }: OpcionesDictado): Dictado | null {
+export function iniciarDictado({
+  alTexto,
+  alError,
+  alTerminar,
+  continuo,
+}: OpcionesDictado): Dictado | null {
   if (typeof window === 'undefined') return null;
   const Reconocimiento = constructorNativo();
   if (!Reconocimiento) return null;
@@ -266,7 +311,7 @@ export function iniciarDictado({ alTexto, alError, alTerminar }: OpcionesDictado
   // En computadora sigue escuchando entre pausas hasta que se toque el botón.
   // Chrome de Android repite frases en modo continuo, así que ahí escucha una
   // frase por vez y se apaga solo al terminar de hablar.
-  rec.continuous = !esAndroid();
+  rec.continuous = continuo ?? !esAndroid();
 
   let texto = '';
   let terminado = false;
@@ -283,7 +328,7 @@ export function iniciarDictado({ alTexto, alError, alTerminar }: OpcionesDictado
     alTexto(texto, parcial === '');
   };
 
-  rec.onerror = (e) => alError(mensajeDeError(e.error));
+  rec.onerror = (e) => alError(mensajeDeError(e.error), e.error);
 
   rec.onend = () => {
     if (terminado) return;
@@ -296,7 +341,7 @@ export function iniciarDictado({ alTexto, alError, alTerminar }: OpcionesDictado
     rec.start();
   } catch (e) {
     console.error('[voz] No se pudo iniciar el dictado:', e);
-    alError('No se pudo encender el micrófono. Probá de nuevo en unos segundos.');
+    alError('No se pudo encender el micrófono. Probá de nuevo en unos segundos.', 'start');
     return null;
   }
 

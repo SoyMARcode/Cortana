@@ -170,3 +170,16 @@ ANTES de publicar: sin las columnas nuevas, el panel no carga las tareas.
 - **Internet**: `web_search` y `web_fetch` de Anthropic (hasta 3 usos por
   mensaje, ~US$10 cada 1000 búsquedas). Las fuentes se ven debajo de la
   respuesta.
+
+## Mejoras v7
+- **Buenos días** (`lib/buenos-dias.ts`): push diario a la hora de
+  `ajustes.buenos_dias_hora` (por defecto 7) con clima, eventos, tareas de
+  hoy/atrasadas y avisos del día. Reemplaza al aviso de lluvia suelto, que
+  solo se manda a quien apagó el buenos días. Lo dispara `/api/cron/proactivo`.
+- **Botones en las notificaciones** (`public/sw.js`, `/api/avisos/accion`):
+  "Posponer 10 min", "Listo" y "Marcar hecha". Funcionan sin sesión: cada
+  aviso lleva una firma HMAC (`lib/firma-aviso.ts`, con CRON_SECRET). iPhone
+  no muestra botones en las notificaciones web.
+- **Manos libres** (`app/chat.tsx`): `hablar()` avisa cuando termina de leer
+  y el micrófono escucha una frase y la envía sola. Si no se dice nada,
+  queda en pausa.

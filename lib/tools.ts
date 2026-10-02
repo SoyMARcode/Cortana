@@ -630,7 +630,7 @@ export function crearHerramientas(
 
     configurar_avisos: tool({
       description:
-        'Cambia los avisos automáticos: el resumen semanal de tareas (si llega, qué día y a qué hora) y el aviso de lluvia por la mañana. Solo se cambian los campos que se pasan.',
+        'Cambia los avisos automáticos: el "buenos días" de cada mañana (si llega y a qué hora), el resumen semanal de tareas (si llega, qué día y a qué hora) y el aviso de lluvia. Solo se cambian los campos que se pasan.',
       inputSchema: z.object({
         resumen_semanal: z.boolean().optional().describe('true para recibirlo, false para dejar de recibirlo'),
         resumen_dia: z
@@ -644,7 +644,20 @@ export function crearHerramientas(
         aviso_lluvia: z
           .boolean()
           .optional()
-          .describe('Aviso a las 7 de la mañana si va a llover (necesita la ubicación)'),
+          .describe(
+            'Aviso suelto a las 7 de la mañana si va a llover (necesita la ubicación). Con el buenos días activado, la lluvia ya viene ahí.'
+          ),
+        buenos_dias: z
+          .boolean()
+          .optional()
+          .describe('true para recibir cada mañana el resumen del día (clima, eventos, tareas y avisos de hoy)'),
+        buenos_dias_hora: z
+          .number()
+          .int()
+          .min(0)
+          .max(23)
+          .optional()
+          .describe('Hora local del buenos días, 0 a 23 (por defecto 7)'),
       }),
       execute: async (cambios) => {
         const limpios = Object.fromEntries(Object.entries(cambios).filter(([, v]) => v !== undefined));
@@ -654,15 +667,15 @@ export function crearHerramientas(
           .from('ajustes')
           .update({ ...limpios, updated_at: new Date().toISOString() })
           .eq('user_id', userId)
-          .select('resumen_semanal, resumen_dia, resumen_hora, aviso_lluvia, latitud')
+          .select('resumen_semanal, resumen_dia, resumen_hora, aviso_lluvia, buenos_dias, buenos_dias_hora, latitud')
           .single();
         if (error) return { ok: false, error: error.message };
         const { latitud, ...ajustesNuevos } = data;
         return {
           ok: true,
           ajustes: ajustesNuevos,
-          ...(data.aviso_lluvia && latitud == null
-            ? { falta: 'Para el aviso de lluvia tiene que tocar "Usar mi ubicación" en el panel.' }
+          ...((data.aviso_lluvia || data.buenos_dias) && latitud == null
+            ? { falta: 'Para que el clima aparezca tiene que tocar "Usar mi ubicación" en el panel.' }
             : {}),
         };
       },

@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import { createAdminClient } from '@/lib/supabase/server';
+import type { TipoAviso } from '@/lib/firma-aviso';
 
 export type AvisoPush = {
   titulo: string;
@@ -8,6 +9,12 @@ export type AvisoPush = {
   url?: string;
   /** Avisos con el mismo tag se reemplazan en vez de apilarse. */
   tag?: string;
+  /**
+   * Botones de la notificación (Android y computadora; iPhone no los
+   * muestra). `aviso` dice a qué recordatorio o tarea se refieren.
+   */
+  acciones?: { accion: 'posponer' | 'hecha' | 'listo'; titulo: string }[];
+  aviso?: { tipo: TipoAviso; id: string; firma: string };
 };
 
 let configurado = false;

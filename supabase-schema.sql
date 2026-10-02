@@ -439,4 +439,14 @@ create policy "usuarios borran sus adjuntos"
   on storage.objects for delete to authenticated
   using (bucket_id = 'adjuntos' and (storage.foldername(name))[1] = auth.uid()::text);
 
+
+-- ============================================================
+-- Mejoras v7: "buenos días" diario (clima, eventos, tareas y avisos de hoy).
+-- ============================================================
+
+alter table ajustes add column if not exists buenos_dias boolean not null default true;
+alter table ajustes add column if not exists buenos_dias_hora smallint not null default 7
+  check (buenos_dias_hora between 0 and 23);
+alter table ajustes add column if not exists ultimo_buenos_dias date;
+
 notify pgrst, 'reload schema';
