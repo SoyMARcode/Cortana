@@ -40,9 +40,11 @@ function zonaHorariaValida(zona: unknown): string {
 
 export async function POST(req: Request) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verifica la sesión sin ir al servidor de Supabase: cada mensaje sale ~250 ms antes.
+  const { data: sesion } = await supabase.auth.getClaims();
+  const user = sesion?.claims.sub
+    ? { id: sesion.claims.sub, email: sesion.claims.email as string | undefined }
+    : null;
 
   if (!user) {
     return new Response('No autorizado', { status: 401 });

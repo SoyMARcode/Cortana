@@ -1,25 +1,8 @@
-import { z } from 'zod';
+// Sin zod a propósito: el panel usa textoRepeticion en el navegador. El
+// esquema para las herramientas está en lib/tools.ts.
 
 export const REPETICIONES = ['diaria', 'laborables', 'semanal', 'mensual'] as const;
 export type Repeticion = (typeof REPETICIONES)[number];
-
-/** Campos de repetición que comparten tareas y recordatorios en las herramientas. */
-export const esquemaRepeticion = {
-  repeticion: z
-    .enum(REPETICIONES)
-    .nullable()
-    .optional()
-    .describe(
-      'Si se repite: "diaria", "laborables" (lunes a viernes), "semanal" o "mensual". null para que deje de repetirse.'
-    ),
-  dias_semana: z
-    .array(z.number().int().min(0).max(6))
-    .max(7)
-    .optional()
-    .describe(
-      'Solo con "semanal": días en que se repite, 0 = domingo ... 6 = sábado. Ej. "todos los lunes y jueves" = [1, 4]. Sin días, cada 7 días desde la fecha.'
-    ),
-};
 
 const NOMBRES_DIA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 

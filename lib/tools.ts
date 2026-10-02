@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { enviarCorreoLibre, type Adjunto as AdjuntoCorreo } from '@/lib/email';
 import { formatearEnZona, horaLocalAUtc, partesLocales } from '@/lib/zona-horaria';
-import { esquemaRepeticion, textoRepeticion } from '@/lib/repeticion';
+import { REPETICIONES, textoRepeticion } from '@/lib/repeticion';
 import { buscarLugar, pronostico } from '@/lib/clima';
 import { eventosEntre, probarCalendario, validarEnlace } from '@/lib/calendario';
 import { BUCKET_ADJUNTOS, MAX_BYTES_CORREO } from '@/lib/adjuntos';
@@ -14,6 +14,24 @@ const MAX_PREFERENCIAS = 40;
 
 /** Tope de apodos por contacto. */
 const MAX_APODOS = 10;
+
+/** Campos de repetición que comparten tareas y recordatorios. */
+const esquemaRepeticion = {
+  repeticion: z
+    .enum(REPETICIONES)
+    .nullable()
+    .optional()
+    .describe(
+      'Si se repite: "diaria", "laborables" (lunes a viernes), "semanal" o "mensual". null para que deje de repetirse.'
+    ),
+  dias_semana: z
+    .array(z.number().int().min(0).max(6))
+    .max(7)
+    .optional()
+    .describe(
+      'Solo con "semanal": días en que se repite, 0 = domingo ... 6 = sábado. Ej. "todos los lunes y jueves" = [1, 4]. Sin días, cada 7 días desde la fecha.'
+    ),
+};
 
 /** Tope de destinatarios por correo, para evitar envíos masivos. */
 export const MAX_DESTINATARIOS = 10;

@@ -23,9 +23,11 @@ export async function proxy(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims verifica la firma de la sesión acá mismo (claves ES256), sin
+  // consultar al servidor de Supabase como getUser: la app abre ~250 ms antes.
+  // Si la sesión venció, la renueva igual y actualiza las cookies.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims;
 
   if (!user && request.nextUrl.pathname === '/') {
     const url = request.nextUrl.clone();
