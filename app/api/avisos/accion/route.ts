@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase/server';
 import { firmaValida } from '@/lib/firma-aviso';
+import { partesLocales } from '@/lib/zona-horaria';
 
 /** Cuánto se pospone un aviso desde el botón de la notificación. */
 const MINUTOS_POSPONER = 10;
@@ -10,7 +11,7 @@ const pedidoSchema = z.object({
   tipo: z.enum(['recordatorio', 'tarea']),
   id: z.uuid(),
   firma: z.string().min(10).max(100),
-  accion: z.enum(['posponer', 'hecha', 'listo']),
+  accion: z.enum(['posponer', 'hecha', 'listo', 'manana']),
 });
 
 /**
@@ -19,6 +20,7 @@ const pedidoSchema = z.object({
  * - posponer: el mismo aviso vuelve en 10 minutos.
  * - hecha: completa la tarea (la del aviso o la vinculada al recordatorio).
  * - listo: solo cierra la notificación.
+ * - manana: pasa la tarea para mañana (rescate de tareas atrasadas).
  */
 export async function POST(req: Request) {
   const pedido = pedidoSchema.safeParse(await req.json().catch(() => null));
@@ -63,7 +65,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // tipo === 'tarea': el aviso de vencimiento solo ofrece "Marcar hecha".
+  // tipo === 'tarea': vencimientos y rescates ofrecen "Marcar hecha" y "Pasar a mañana".
+  if (accion === 'manana') {
+    const { data: t } = await supabase.from('tareas').select('user_id').eq('id', id).maybeSingle();
+    if (!t) return NextResponse.json({ error: 'La tarea ya no existe' }, { status: 404 });
+    const { data: a } = await supabase
+      .from('ajustes')
+      .select('zona_horaria')
+      .eq('user_id', t.user_id)
+      .maybeSingle();
+    const hoy = partesLocales(new Date(), a?.zona_horaria ?? 'UTC').fecha;
+    const manana = new Date(Date.parse(hoy + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10);
+    const { error } = await supabase
+      .from('tareas')
+      .update({ fecha_limite: manana, ultimo_aviso_dia: null, ultimo_rescate: null })
+      .eq('id', id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, fecha: manana });
+  }
   if (accion !== 'hecha') return NextResponse.json({ error: 'Acción no disponible' }, { status: 400 });
   const { error } = await supabase.from('tareas').update({ completada: true }).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

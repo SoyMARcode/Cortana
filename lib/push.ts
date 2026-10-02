@@ -13,7 +13,7 @@ export type AvisoPush = {
    * Botones de la notificación (Android y computadora; iPhone no los
    * muestra). `aviso` dice a qué recordatorio o tarea se refieren.
    */
-  acciones?: { accion: 'posponer' | 'hecha' | 'listo'; titulo: string }[];
+  acciones?: { accion: 'posponer' | 'hecha' | 'listo' | 'manana'; titulo: string }[];
   aviso?: { tipo: TipoAviso; id: string; firma: string };
 };
 

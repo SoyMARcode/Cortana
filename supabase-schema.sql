@@ -449,4 +449,38 @@ alter table ajustes add column if not exists buenos_dias_hora smallint not null 
   check (buenos_dias_hora between 0 and 23);
 alter table ajustes add column if not exists ultimo_buenos_dias date;
 
+-- ============================================================
+-- Mejoras v8 (parte 1): no molestar, aviso antes de eventos,
+-- rescate de tareas atrasadas y limpieza semanal.
+-- ============================================================
+
+-- No molestar: de noche no llegan avisos automáticos. Los recordatorios
+-- que la persona programó a una hora exacta llegan igual.
+alter table ajustes add column if not exists no_molestar boolean not null default true;
+alter table ajustes add column if not exists no_molestar_desde smallint not null default 22
+  check (no_molestar_desde between 0 and 23);
+alter table ajustes add column if not exists no_molestar_hasta smallint not null default 7
+  check (no_molestar_hasta between 0 and 23);
+
+-- Minutos antes de cada evento del calendario en que llega el aviso. 0 = apagado.
+alter table ajustes add column if not exists aviso_evento_minutos smallint not null default 30
+  check (aviso_evento_minutos between 0 and 240);
+
+-- Último domingo en que se mandó la limpieza de tareas viejas sin fecha.
+alter table ajustes add column if not exists ultima_limpieza date;
+
+-- Último día en que se ofreció rescatar esta tarea atrasada.
+alter table tareas add column if not exists ultimo_rescate date;
+
+-- Eventos del calendario ya avisados, para no repetir el aviso.
+-- Sin políticas RLS: solo la usa el servidor.
+create table if not exists eventos_avisados (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  clave text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, clave)
+);
+
+alter table eventos_avisados enable row level security;
+
 notify pgrst, 'reload schema';

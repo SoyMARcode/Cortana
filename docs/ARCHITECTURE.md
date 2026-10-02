@@ -183,3 +183,7 @@ ANTES de publicar: sin las columnas nuevas, el panel no carga las tareas.
 - **Manos libres** (`app/chat.tsx`): `hablar()` avisa cuando termina de leer
   y el micrófono escucha una frase y la envía sola. Si no se dice nada,
   queda en pausa.
+
+## Mejoras v8 en adelante
+La guía por partes (qué hace, cómo se usa, cómo funciona) está en
+[MEJORAS.md](MEJORAS.md).

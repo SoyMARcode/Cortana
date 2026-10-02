@@ -343,9 +343,12 @@ const ENLACE =
 export default function Chat({
   mensajesIniciales,
   libretaInicial,
+  mensajeSugerido = '',
 }: {
   mensajesIniciales: UIMessage[];
   libretaInicial: Libreta;
+  /** Texto para dejar escrito en el campo al abrir (lo trae una notificación). */
+  mensajeSugerido?: string;
 }) {
   const [supabase] = useState(() => createClient());
   const [libreta, setLibreta] = useState(libretaInicial);
@@ -375,7 +378,7 @@ export default function Chat({
       refrescarLibreta();
     },
   });
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(mensajeSugerido);
   const [adjuntos, setAdjuntos] = useState<Adjunto[]>([]);
   const [subiendo, setSubiendo] = useState(false);
   const archivoRef = useRef<HTMLInputElement>(null);
@@ -396,6 +399,10 @@ export default function Chat({
   const router = useRouter();
   const esperandoAprobacion = tieneAprobacionPendiente(messages);
   const pendientes = libreta.tareas.filter((t) => !t.completada).length;
+
+  useEffect(() => {
+    if (mensajeSugerido) router.replace('/');
+  }, [mensajeSugerido, router]);
 
   useEffect(() => {
     registrarServiceWorker();

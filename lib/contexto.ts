@@ -16,6 +16,10 @@ export type Ajustes = {
   aviso_lluvia: boolean;
   buenos_dias: boolean;
   buenos_dias_hora: number;
+  no_molestar: boolean;
+  no_molestar_desde: number;
+  no_molestar_hasta: number;
+  aviso_evento_minutos: number;
   calendario_ics: string | null;
 };
 
@@ -92,8 +96,14 @@ export async function cargarContexto(
           : 'desactivado'
       }. Buenos días diario: ${
         a.buenos_dias ? `activado, a las ${horaEnPunto(a.buenos_dias_hora)}` : 'desactivado'
-      }. Aviso de lluvia suelto: ${a.aviso_lluvia ? 'activado' : 'desactivado'}. Calendario: ${
-        a.calendario_ics ? 'conectado' : 'no conectado'
+      }. Aviso de lluvia suelto: ${a.aviso_lluvia ? 'activado' : 'desactivado'}. No molestar: ${
+        a.no_molestar
+          ? `de ${horaEnPunto(a.no_molestar_desde)} a ${horaEnPunto(a.no_molestar_hasta)}`
+          : 'desactivado'
+      }. Calendario: ${
+        a.calendario_ics
+          ? `conectado, aviso ${a.aviso_evento_minutos ? `${a.aviso_evento_minutos} min antes de cada evento` : 'antes de eventos apagado'}`
+          : 'no conectado'
       }.`
     );
   }

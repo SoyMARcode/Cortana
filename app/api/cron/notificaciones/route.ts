@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { enviarRecordatorio } from '@/lib/email';
 import { enviarPush } from '@/lib/push';
 import { firmarAviso } from '@/lib/firma-aviso';
+import { enNoMolestar, type HorarioNoMolestar } from '@/lib/no-molestar';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +37,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
+  // Horario de no molestar de cada persona: de noche el aviso queda para mañana.
+  const { data: horarios } = await supabase
+    .from('ajustes')
+    .select('user_id, zona_horaria, no_molestar, no_molestar_desde, no_molestar_hasta');
+  const noMolestar = new Map(
+    (horarios ?? []).map((h) => [h.user_id as string, h as HorarioNoMolestar])
+  );
+
   let enviados = 0;
   const errores: { tarea: string; motivo: string }[] = [];
 
@@ -44,6 +53,7 @@ export async function GET(req: Request) {
 
     if (dias < 0 || dias > 8) continue;
     if (tarea.ultimo_aviso_dia === dias) continue;
+    if (enNoMolestar(noMolestar.get(tarea.user_id))) continue;
 
     // Primero push; el correo solo si no llegó a ningún dispositivo.
     const entregadosPush = await enviarPush(tarea.user_id, {
@@ -51,7 +61,10 @@ export async function GET(req: Request) {
       cuerpo:
         dias === 0 ? 'Vence hoy.' : dias === 1 ? 'Vence mañana.' : `Faltan ${dias} días.`,
       tag: `tarea-${tarea.id}`,
-      acciones: [{ accion: 'hecha', titulo: 'Marcar hecha' }],
+      acciones: [
+        { accion: 'hecha', titulo: 'Marcar hecha' },
+        { accion: 'manana', titulo: 'Pasar a mañana' },
+      ],
       aviso: { tipo: 'tarea', id: tarea.id, firma: firmarAviso('tarea', tarea.id) },
     });
 

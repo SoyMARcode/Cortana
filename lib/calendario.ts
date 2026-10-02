@@ -13,6 +13,8 @@ const TAMANO_MAXIMO = 5 * 1024 * 1024;
 const MAX_ITERACIONES = 5000;
 
 export type EventoCalendario = {
+  /** Identificador único de esta ocurrencia: UID del evento + inicio. */
+  clave: string;
   titulo: string;
   /** "lunes 6 de octubre, 9:00", o solo el día si es de día completo. */
   cuando: string;
@@ -97,11 +99,12 @@ export async function eventosEntre(
   for (const e of eventos) if (e.isRecurrenceException()) principales.get(e.uid)?.relateException(e);
 
   const resultado: EventoCalendario[] = [];
-  const agregar = (titulo: string, inicio: ICAL.Time, fin: ICAL.Time, lugar: string) => {
+  const agregar = (uid: string, titulo: string, inicio: ICAL.Time, fin: ICAL.Time, lugar: string) => {
     const empieza = inicio.isDate ? new Date(fechaDeDia(inicio) + 'T00:00:00Z') : inicio.toJSDate();
     const termina = fin.isDate ? new Date(fechaDeDia(fin) + 'T00:00:00Z') : fin.toJSDate();
     if (termina <= desde || empieza >= hasta) return;
     resultado.push({
+      clave: `${uid}|${empieza.toISOString()}`,
       titulo: titulo || '(sin título)',
       cuando: inicio.isDate ? textoDia(fechaDeDia(inicio)) : formatearEnZona(empieza, zona),
       hasta: inicio.isDate ? undefined : formatearEnZona(termina, zona),
@@ -113,14 +116,14 @@ export async function eventosEntre(
 
   for (const evento of principales.values()) {
     if (!evento.isRecurring()) {
-      agregar(evento.summary, evento.startDate, evento.endDate, evento.location);
+      agregar(evento.uid, evento.summary, evento.startDate, evento.endDate, evento.location);
       continue;
     }
     const iterador = evento.iterator();
     for (let i = 0, t = iterador.next(); t && i < MAX_ITERACIONES; i++, t = iterador.next()) {
       if (t.toJSDate() >= hasta) break;
       const det = evento.getOccurrenceDetails(t);
-      agregar(det.item.summary, det.startDate, det.endDate, det.item.location);
+      agregar(evento.uid, det.item.summary, det.startDate, det.endDate, det.item.location);
     }
   }
 

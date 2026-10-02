@@ -92,6 +92,31 @@ select cron.schedule(
   $$
 );
 
+-- Cada 5 minutos: aviso antes de cada evento del calendario. Solo llama a
+-- la app si alguien tiene un calendario conectado con el aviso encendido.
+select cron.unschedule('qir-eventos')
+where exists (select 1 from cron.job where jobname = 'qir-eventos');
+
+select cron.schedule(
+  'qir-eventos',
+  '*/5 * * * *',
+  $$
+  select net.http_get(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'cortana_url')
+           || '/api/cron/eventos',
+    headers := jsonb_build_object(
+      'Authorization',
+      'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cortana_cron_secret')
+    ),
+    timeout_milliseconds := 60000
+  )
+  where exists (
+    select 1 from public.ajustes
+     where calendario_ics is not null and aviso_evento_minutos > 0
+  );
+  $$
+);
+
 -- Para revisar que esté corriendo:
 --   select jobname, status, start_time from cron.job_run_details order by start_time desc limit 10;
 --   select status_code, content from net._http_response order by created desc limit 5;

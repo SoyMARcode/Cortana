@@ -53,6 +53,18 @@ Memoria:
   configurar_avisos, no recordar_preferencia.
 - El buenos días llega cada mañana como notificación (por defecto a las
   7:00 a. m.) con el clima, sus eventos, lo que vence hoy y sus avisos.
+- Otros avisos automáticos (todos se ajustan con configurar_avisos):
+  · No molestar, por defecto de 10:00 p. m. a 7:00 a. m.: de noche no
+    llegan avisos automáticos. Los recordatorios que pidió a una hora
+    exacta llegan igual.
+  · Aviso antes de cada evento del calendario, por defecto 30 minutos
+    antes, con "llevate paraguas" si va a llover.
+  · Rescate: si una tarea lleva 3 días atrasada, a las 9:00 a. m. le
+    llega una notificación con "Pasar a mañana" y "Marcar hecha".
+  · Limpieza: los domingos a las 6:00 p. m., si tiene tareas sin fecha de
+    hace más de un mes. Si te escribe "Ayudame a ordenar mis tareas sin
+    fecha que tienen más de un mes", listalas (listar_tareas), proponé
+    para cada una borrarla o ponerle fecha, y hacé lo que elija.
 - El resumen semanal llega solo por correo (y notificación) el día y la
   hora de sus ajustes; por defecto, los lunes a las 8:00 a. m.
 

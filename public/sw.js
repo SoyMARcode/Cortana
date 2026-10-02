@@ -47,6 +47,7 @@ async function ejecutarAccion(accion, aviso, tag) {
     if (!res.ok) throw new Error(String(res.status));
     if (accion === 'posponer') await confirmar('Pospuesto', 'Te lo vuelvo a avisar en 10 minutos.');
     if (accion === 'hecha') await confirmar('¡Hecho!', 'La marqué como completada.');
+    if (accion === 'manana') await confirmar('Pasada a mañana', 'Mañana te la vuelvo a mostrar.');
   } catch {
     await confirmar('No se pudo', 'Abrí QIR y hacelo desde ahí.');
   }
@@ -65,7 +66,13 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ventanas) => {
       // Si QIR ya está abierta, la trae al frente en vez de abrir otra.
       const abierta = ventanas.find((v) => v.url.startsWith(self.location.origin));
-      if (abierta) return abierta.focus();
+      if (abierta) {
+        // Si el aviso trae un pedido para el chat (/?mensaje=...), lo lleva ahí.
+        const conPedido = new URL(url).search !== '';
+        return (conPedido ? abierta.navigate(url).catch(() => abierta) : Promise.resolve(abierta)).then(
+          (v) => (v || abierta).focus()
+        );
+      }
       return self.clients.openWindow(url);
     })
   );

@@ -648,7 +648,7 @@ export function crearHerramientas(
 
     configurar_avisos: tool({
       description:
-        'Cambia los avisos automáticos: el "buenos días" de cada mañana (si llega y a qué hora), el resumen semanal de tareas (si llega, qué día y a qué hora) y el aviso de lluvia. Solo se cambian los campos que se pasan.',
+        'Cambia los avisos automáticos: el "buenos días" de cada mañana, el resumen semanal, el aviso de lluvia, el horario de no molestar y cuántos minutos antes de cada evento avisar. Solo se cambian los campos que se pasan.',
       inputSchema: z.object({
         resumen_semanal: z.boolean().optional().describe('true para recibirlo, false para dejar de recibirlo'),
         resumen_dia: z
@@ -676,6 +676,19 @@ export function crearHerramientas(
           .max(23)
           .optional()
           .describe('Hora local del buenos días, 0 a 23 (por defecto 7)'),
+        no_molestar: z
+          .boolean()
+          .optional()
+          .describe('true: de noche no llegan avisos automáticos (los recordatorios con hora exacta llegan igual)'),
+        no_molestar_desde: z.number().int().min(0).max(23).optional().describe('Hora local en que empieza, 0 a 23 (por defecto 22)'),
+        no_molestar_hasta: z.number().int().min(0).max(23).optional().describe('Hora local en que termina, 0 a 23 (por defecto 7)'),
+        aviso_evento_minutos: z
+          .number()
+          .int()
+          .min(0)
+          .max(240)
+          .optional()
+          .describe('Minutos antes de cada evento del calendario para avisar. 0 lo apaga (por defecto 30)'),
       }),
       execute: async (cambios) => {
         const limpios = Object.fromEntries(Object.entries(cambios).filter(([, v]) => v !== undefined));
@@ -685,7 +698,9 @@ export function crearHerramientas(
           .from('ajustes')
           .update({ ...limpios, updated_at: new Date().toISOString() })
           .eq('user_id', userId)
-          .select('resumen_semanal, resumen_dia, resumen_hora, aviso_lluvia, buenos_dias, buenos_dias_hora, latitud')
+          .select(
+            'resumen_semanal, resumen_dia, resumen_hora, aviso_lluvia, buenos_dias, buenos_dias_hora, no_molestar, no_molestar_desde, no_molestar_hasta, aviso_evento_minutos, latitud'
+          )
           .single();
         if (error) return { ok: false, error: error.message };
         const { latitud, ...ajustesNuevos } = data;
